@@ -1,0 +1,19 @@
+-- 啟用向量擴充功能
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 建立文件表
+CREATE TABLE IF NOT EXISTS documents (
+    id SERIAL PRIMARY KEY,
+    filename TEXT NOT NULL,
+    s3_key TEXT NOT NULL,
+    upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status TEXT DEFAULT 'pending' -- pending, processing, completed, failed
+);
+
+-- 建立向量表 (Chunks)
+CREATE TABLE IF NOT EXISTS document_chunks (
+    id SERIAL PRIMARY KEY,
+    document_id INTEGER REFERENCES documents(id),
+    chunk_text TEXT NOT NULL,
+    embedding vector(384) -- 使用 384 維的模型 (all-MiniLM-L6-v2)
+);

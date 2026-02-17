@@ -1,0 +1,9 @@
+redis
+pydantic
+pydantic-settings
+psycopg2-binary
+boto3
+sentence-transformers
+torch --index-url https://download.pytorch.org/whl/cpu
+numpy<2.0
+pypdf
