@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS documents (
     filename TEXT NOT NULL,
     s3_key TEXT NOT NULL,
     upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    status TEXT DEFAULT 'pending' -- pending, processing, completed, failed
+    status TEXT DEFAULT 'pending'
 );
 
 -- 建立向量表 (Chunks)
@@ -15,5 +15,6 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     id SERIAL PRIMARY KEY,
     document_id INTEGER REFERENCES documents(id),
     chunk_text TEXT NOT NULL,
-    embedding vector(384) -- 使用 384 維的模型 (all-MiniLM-L6-v2)
+    -- ⚠️ 關鍵修改：從 384 改成 1024 維
+    embedding vector(1024) 
 );

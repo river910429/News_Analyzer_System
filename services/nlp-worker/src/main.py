@@ -10,7 +10,7 @@ from sentence_transformers import SentenceTransformer
 
 # 初始化模型 (這會花一點時間下載)
 print("Loading Embedding Model...")
-model = SentenceTransformer('all-MiniLM-L6-v2') 
+model = SentenceTransformer('BAAI/bge-m3')
 print("Model Loaded!")
 
 redis_client = redis.Redis(host=os.getenv("REDIS_HOST"), port=6379, db=0)

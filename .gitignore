@@ -1,0 +1,52 @@
+# ===== Environment =====
+.env
+.env.*
+!.env.example
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# ===== Node.js / Frontend =====
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.vite/
+dist/
+
+# ===== IDE / Editor =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===== Docker =====
+# Uncomment if you want to ignore Docker data volumes locally
+# docker-data/
+
+# ===== Logs =====
+*.log
+logs/
+
+# ===== OS =====
+.DS_Store
+Desktop.ini
+Thumbs.db
+ehthumbs.db
+
+# ===== Misc =====
+*.bak
+*.tmp
+test.txt
