@@ -46,6 +46,8 @@ services:
       - "${API_PORT}:8000"
     env_file:
       - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # 讓 Linux 上的容器也能連到宿主機的 Ollama
     volumes:
       - ./services/api-gateway/src:/app/src
     depends_on:
@@ -80,6 +82,8 @@ services:
     build: ./services/frontend
     ports:
       - "5173:5173"
+    environment:
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
     volumes:
       - ./services/frontend/src:/app/src
     networks:
