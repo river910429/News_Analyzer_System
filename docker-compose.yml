@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # 1. Redis (任務佇列)
   redis-queue:
@@ -26,7 +24,8 @@ services:
 
   # 3. Object Storage (MinIO)
   minio:
-    image: minio/minio
+    image: cgr.dev/chainguard/minio:latest
+    user: "0:0"
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
