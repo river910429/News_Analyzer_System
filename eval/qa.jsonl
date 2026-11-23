@@ -1,0 +1,5 @@
+// 每行一題 JSON。keywords 必須是 PDF 裡「一字不差」出現的字串（數字、專有名詞），
+// 檢索到的 chunk 同時包含全部 keywords 才算命中。answer_keywords 不填就沿用 keywords。
+// 格式範例（請換成從你的財報實際查到的內容，再刪掉這幾行註解）：
+// {"id": "rev-01", "question": "公司全年營業收入淨額是多少？", "keywords": ["營業收入淨額", "3,809,054,272"], "answer_keywords": ["3,809,054,272"], "type": "number"}
+// {"id": "risk-01", "question": "公司提到哪些主要風險？", "keywords": ["匯率"], "type": "text"}

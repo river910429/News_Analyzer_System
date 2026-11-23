@@ -89,6 +89,14 @@ class ChatResponse(BaseModel):
     sources: List[SearchResult]
 
 
+class RetrieveRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    top_k: int = Field(10, ge=1, le=50)
+    apply_threshold: bool = Field(
+        False, description="評估時預設不套用相似度門檻，才能看到完整的排序"
+    )
+
+
 @app.on_event("startup")
 def ensure_bucket() -> None:
     s3 = get_s3_client()
@@ -156,8 +164,8 @@ def list_documents():
     ]
 
 
-def retrieve(query: str, top_k: int) -> List[SearchResult]:
-    """Return the top_k most similar chunks above SIMILARITY_THRESHOLD."""
+def retrieve(query: str, top_k: int, apply_threshold: bool = True) -> List[SearchResult]:
+    """Return the top_k most similar chunks (optionally only those above SIMILARITY_THRESHOLD)."""
     query_vector = model.encode(query).tolist()
     sql = """
         SELECT d.filename, c.chunk_text, (c.embedding <=> %s::vector) AS distance
@@ -177,7 +185,7 @@ def retrieve(query: str, top_k: int) -> List[SearchResult]:
     results = []
     for filename, chunk_text, distance in rows:
         score = 1 - distance  # cosine distance -> cosine similarity
-        if score > SIMILARITY_THRESHOLD:
+        if not apply_threshold or score > SIMILARITY_THRESHOLD:
             results.append(
                 SearchResult(filename=filename, content=chunk_text, similarity_score=round(score, 4))
             )
@@ -227,4 +235,14 @@ def search_and_generate(request: SearchRequest):
         return ChatResponse(answer=answer, sources=sources)
     except Exception as e:
         logger.exception("RAG search failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/retrieve", response_model=List[SearchResult])
+def retrieve_only(request: RetrieveRequest):
+    """Retrieval without calling the LLM. Used by eval/run_eval.py to measure Hit@k / MRR."""
+    try:
+        return retrieve(request.query, request.top_k, request.apply_threshold)
+    except Exception as e:
+        logger.exception("Retrieve failed")
         raise HTTPException(status_code=500, detail=str(e))
