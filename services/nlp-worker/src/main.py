@@ -14,6 +14,8 @@ from psycopg2.extras import execute_values
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 
+from chunking import chunk_pages
+
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
@@ -33,8 +35,7 @@ MINIO_BUCKET = os.getenv("MINIO_BUCKET", "documents")
 # Must be the same model the api-gateway uses.
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "500"))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
-MIN_CHUNK_LENGTH = 50
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))
 ETL_QUEUE = "etl_queue"
 
 logger.info("Loading embedding model %s ...", EMBEDDING_MODEL)
@@ -59,35 +60,34 @@ def get_s3_client():
     )
 
 
-def extract_text(pdf_bytes: bytes) -> str:
-    """Extract text from a PDF. Raises ValueError if nothing readable is found."""
+def extract_pages(pdf_bytes: bytes) -> List[str]:
+    """Extract text per page. Raises ValueError if nothing readable is found."""
     pdf = PdfReader(io.BytesIO(pdf_bytes))
     if pdf.is_encrypted:
         logger.warning("PDF is encrypted, trying empty password")
         pdf.decrypt("")
 
     pages = []
-    for i, page in enumerate(pdf.pages):
-        text = page.extract_text()
-        if text:
-            pages.append(text)
-        else:
+    for i, page in enumerate(pdf.pages, start=1):
+        text = page.extract_text() or ""
+        if not text.strip():
             logger.warning("Page %d has no extractable text (image-only?)", i)
+        pages.append(text)  # keep empty pages so page numbers stay correct
 
-    content = "\n".join(pages)
-    if not content.strip():
+    if not any(p.strip() for p in pages):
         raise ValueError("Extracted text is empty (image-only or empty PDF)")
-    return content
+    return pages
 
 
-def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
-    """Fixed-size character chunks with overlap; drops very short trailing pieces."""
-    chunks = []
-    for start in range(0, len(text), size - overlap):
-        chunk = text[start:start + size]
-        if len(chunk) > MIN_CHUNK_LENGTH:
-            chunks.append(chunk)
-    return chunks
+def ensure_schema() -> None:
+    """Idempotent migration for databases created before page numbers existed."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS page_number INTEGER")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def set_status(conn, doc_id: int, status: str) -> None:
@@ -100,20 +100,23 @@ def process_document(conn, s3, doc_id: int, s3_key: str) -> None:
     set_status(conn, doc_id, "processing")
 
     obj = s3.get_object(Bucket=MINIO_BUCKET, Key=s3_key)
-    text = extract_text(obj["Body"].read())
-    logger.info("Doc %s: extracted %d chars", doc_id, len(text))
+    pages = extract_pages(obj["Body"].read())
+    logger.info("Doc %s: extracted %d pages", doc_id, len(pages))
 
-    chunks = chunk_text(text)
+    chunks = chunk_pages(pages, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)
     logger.info("Doc %s: %d chunks, embedding...", doc_id, len(chunks))
-    embeddings = model.encode(chunks) if chunks else []
+    texts = [text for _, text in chunks]
+    embeddings = model.encode(texts, batch_size=16, normalize_embeddings=True) if texts else []
 
-    # Chunks and the 'completed' status are committed in one transaction,
-    # so a failure never leaves half a document searchable.
+    # Old chunks are replaced and the new ones committed together with the 'completed'
+    # status in one transaction: re-indexing is safe, and a failure never leaves
+    # half a document searchable.
     with conn.cursor() as cursor:
+        cursor.execute("DELETE FROM document_chunks WHERE document_id = %s", (doc_id,))
         execute_values(
             cursor,
-            "INSERT INTO document_chunks (document_id, chunk_text, embedding) VALUES %s",
-            [(doc_id, c, v.tolist()) for c, v in zip(chunks, embeddings)],
+            "INSERT INTO document_chunks (document_id, page_number, chunk_text, embedding) VALUES %s",
+            [(doc_id, page, text, vec.tolist()) for (page, text), vec in zip(chunks, embeddings)],
         )
         cursor.execute("UPDATE documents SET status = 'completed' WHERE id = %s", (doc_id,))
     conn.commit()
@@ -140,6 +143,7 @@ def handle_task(raw: bytes) -> None:
 
 
 def main() -> None:
+    ensure_schema()
     logger.info("Worker listening on queue '%s'", ETL_QUEUE)
     while True:
         try:

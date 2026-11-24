@@ -65,7 +65,7 @@ export default function Dashboard() {
         try {
             const res = await axios.post(`${API_URL}/search`, {
                 query: userQ,
-                top_k: 3
+                top_k: 5
             });
 
             // 解構後端傳來的 ChatResponse
@@ -76,7 +76,7 @@ export default function Dashboard() {
             // 如果有參考來源，把它們折疊或附在下方
             if (sources && sources.length > 0) {
                 const sourceText = sources.map((doc, idx) =>
-                    `[${idx + 1}] ${doc.filename} (相似度: ${(doc.similarity_score * 100).toFixed(1)}%)`
+                    `[${idx + 1}] ${doc.filename}${doc.page ? ` 第 ${doc.page} 頁` : ''} (相似度: ${(doc.similarity_score * 100).toFixed(1)}%)`
                 ).join('\n');
 
                 aiResponse += `\n\n---\n📑 參考來源：\n${sourceText}`;

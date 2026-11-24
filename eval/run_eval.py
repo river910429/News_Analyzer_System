@@ -13,7 +13,7 @@ Answer check (optional, --answers, calls the LLM so it is slow on CPU):
 Only the Python standard library is used, so it runs on the host:
     python eval/run_eval.py                       # retrieval only
     python eval/run_eval.py --answers             # + LLM answer check
-    python eval/run_eval.py --tag fixed-500       # label this run in the report
+    python eval/run_eval.py --mode vector         # compare retrievers: vector | bm25 | hybrid
 """
 
 import argparse
@@ -73,16 +73,20 @@ def main() -> None:
     parser.add_argument("--qa", default=str(HERE / "qa.jsonl"))
     parser.add_argument("--top-k", type=int, default=max(KS))
     parser.add_argument("--answers", action="store_true", help="also call /search and check the LLM answers")
-    parser.add_argument("--tag", default="baseline", help="name of this run, e.g. the chunking strategy")
+    parser.add_argument("--mode", choices=["hybrid", "vector", "bm25"], help="retriever to use (default: server setting)")
+    parser.add_argument("--tag", help="name of this run (default: the mode)")
     args = parser.parse_args()
 
+    args.tag = args.tag or args.mode or "default"
     qa = load_qa(Path(args.qa))
+    if not qa:
+        sys.exit(f"No questions found in {args.qa} (only comments?)")
     print(f"{len(qa)} questions, tag={args.tag}\n")
 
     rows = []
     for i, item in enumerate(qa, start=1):
         t0 = time.time()
-        chunks = post(f"{args.api}/retrieve", {"query": item["question"], "top_k": args.top_k}, 60)
+        chunks = post(f"{args.api}/retrieve", {"query": item["question"], "top_k": args.top_k, "mode": args.mode}, 60)
         rank = first_relevant_rank(chunks, item["keywords"])
         row = {
             "id": item.get("id", i),
@@ -94,7 +98,7 @@ def main() -> None:
 
         if args.answers:
             t0 = time.time()
-            res = post(f"{args.api}/search", {"query": item["question"], "top_k": 3}, 300)
+            res = post(f"{args.api}/search", {"query": item["question"], "top_k": 5, "mode": args.mode}, 300)
             answer = res["answer"]
             expected = item.get("answer_keywords") or item["keywords"]
             row["answer"] = answer

@@ -24,6 +24,19 @@ Results are saved to `eval/results/<time>_<tag>.json`. Re-run with a new `--tag`
 
 ## Results
 
-| Run | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR | answer_hit |
-|---|---|---|---|---|---|---|
-| baseline (fixed 500-char chunks, vector only) | | | | | | |
+QA set: 43 questions on *2025 TSMC Annual Report* (`eval/qa.jsonl`), top-10 retrieval.
+
+| Run | Chunking | Retriever | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR |
+|---|---|---|---|---|---|---|---|
+| baseline | fixed 500 chars | vector (bge-m3) | 0.581 | 0.814 | 0.884 | 0.977 | 0.719 |
+| page + sentence chunks | 500 chars, per page | BM25 (offline check) | 0.791 | 0.953 | 0.953 | 1.000 | 0.872 |
+| page + sentence chunks | 500 chars, per page | vector | | | | | |
+| page + sentence chunks | 500 chars, per page | hybrid (RRF) | | | | | |
+
+Compare retrievers on the running system:
+
+```bash
+python eval/run_eval.py --mode vector
+python eval/run_eval.py --mode bm25
+python eval/run_eval.py --mode hybrid
+```
