@@ -1,32 +1,16 @@
-"""Keyword (BM25) search over chunks, tuned for Traditional Chinese financial text.
+"""In-memory BM25 and rank fusion.
 
-Chinese has no spaces, so text is tokenized into character bigrams; numbers and
-ASCII words are kept whole (with a comma-free copy, so 3,809 also matches 3809).
-The index lives in memory and is rebuilt when the set of chunks changes, which is
-fine for a few thousand chunks; a larger corpus would need a search engine.
+Production BM25 runs on the inverted index in PostgreSQL (see bm25_search in main.py).
+The in-memory BM25 here is the reference implementation, used by tests and the
+offline tokenizer benchmark.
 """
 
 import math
-import re
 import threading
 from collections import Counter
 from typing import Callable, Dict, List, Sequence, Tuple
 
-_CJK = r"㐀-鿿豈-﫿　-〿＀-￯"
-_SPACE_BETWEEN_CJK = re.compile(rf"(?<=[{_CJK}])[ \t]+(?=[{_CJK}])")
-_ASCII_TOKEN = re.compile(r"[0-9A-Za-z][0-9A-Za-z.,%]*")
-_CJK_RUN = re.compile(r"[㐀-鿿豈-﫿]+")
-
-
-def tokenize(text: str) -> List[str]:
-    text = _SPACE_BETWEEN_CJK.sub("", text).lower()
-    tokens = [t.rstrip(".,") for t in _ASCII_TOKEN.findall(text)]
-    tokens += [t.replace(",", "") for t in tokens if "," in t]
-    for run in _CJK_RUN.findall(text):
-        if len(run) == 1:
-            tokens.append(run)
-        tokens += [run[i:i + 2] for i in range(len(run) - 1)]
-    return tokens
+from .tokenizer import tokenize
 
 
 class BM25:

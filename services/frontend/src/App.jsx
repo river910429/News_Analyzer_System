@@ -283,20 +283,20 @@ function AgentTrace({ steps, critiques }) {
     return (
         <details className="mt-3 border-t border-gray-200 pt-2 text-xs text-gray-600">
             <summary className="cursor-pointer select-none text-gray-500">查看執行過程（{steps.length} 步）</summary>
-            <ol className="mt-2 space-y-2 list-none">
+            <div className="mt-2 space-y-2">
                 {steps.map((step, i) => (
-                    <li key={i} className="bg-gray-50 rounded p-2">
+                    <div key={i} className="bg-gray-50 rounded p-2">
                         <div className="font-medium text-gray-700">
                             {i + 1}. {icons[step.tool] || '🔧'} {step.tool}
                             <span className="font-mono text-gray-500"> {JSON.stringify(step.arguments)}</span>
                         </div>
-                        <div className="mt-1 text-gray-500 line-clamp-4">{step.result.slice(0, 400)}</div>
-                    </li>
+                        <div className="mt-1 text-gray-500">{step.result.slice(0, 300)}{step.result.length > 300 ? '…' : ''}</div>
+                    </div>
                 ))}
                 {critiques.map((c, i) => (
-                    <li key={`c${i}`} className="bg-amber-50 text-amber-800 rounded p-2">↩ 自我檢查退回：{c}</li>
+                    <div key={`c${i}`} className="bg-amber-50 text-amber-800 rounded p-2">↩ 自我檢查退回：{c}</div>
                 ))}
-            </ol>
+            </div>
         </details>
     );
 }

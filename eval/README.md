@@ -111,3 +111,43 @@ tables to the agent as structured rows (year → value) instead of text.
 
 **Summary on the 12 multi-step questions:** plain RAG 0.583 → agent v1 0.417 → v2 0.750 →
 v3 + table chunks **0.833**, at about 3 s extra per question.
+
+## Tokenization for BM25
+
+`python eval/tokenizer_benchmark.py` re-indexes the chunks with each tokenizer and runs both
+QA sets (HanLP / CKIP rows appear when those libraries are installed). Offline results,
+574 chunks of the TSMC report:
+
+| Tokenizer | qa.jsonl Hit@1 | Hit@5 | MRR | paraphrase Hit@5 | MRR |
+|---|---|---|---|---|---|
+| unigram | 0.488 | 0.860 | 0.639 | 0.333 | 0.223 |
+| **bigram (production)** | **0.791** | **0.953** | **0.871** | 0.389 | 0.334 |
+| unigram + bigram | 0.721 | 0.930 | 0.817 | 0.389 | 0.324 |
+| jieba | 0.581 | 0.814 | 0.687 | 0.278 | 0.170 |
+| jieba + finance dictionary | 0.605 | 0.860 | 0.703 | 0.111 | 0.115 |
+
+Dictionary segmentation lost to plain bigrams: jieba's dictionary is Simplified Chinese and
+mis-segments Traditional text, and the query and the document are often segmented at
+different granularity (毛利 vs 毛利率), so they share no term. Bigrams never mis-segment.
+
+## Paraphrased questions: the benchmark was too easy
+
+`eval/qa_paraphrase.jsonl` asks 18 of the questions the way a user would ("台積電EPS多少？",
+"總負債", "N2 什麼時候量產", "碳中和"). Same relevant chunks, different words.
+BM25 Hit@5 drops from 0.953 to **0.389**: the original questions reuse the report's wording.
+
+Synonym expansion for BM25 (`query_expansion.py`, generic finance vocabulary):
+
+| BM25 (inverted index in PostgreSQL) | qa.jsonl Hit@5 / MRR | paraphrase Hit@5 / MRR |
+|---|---|---|
+| no expansion | 0.953 / 0.871 | 0.389 / 0.334 |
+| synonym expansion | 0.930 / 0.835 | **0.722 / 0.577** |
+
+Caveat: the dictionary was written after reading these paraphrases, so the paraphrase gain is
+optimistic. A fair test needs a new held-out set of paraphrases written without looking at the
+dictionary. Run on the server (hybrid, with and without expansion):
+
+```bash
+python eval/run_eval.py --mode hybrid --qa eval/qa_paraphrase.jsonl
+python eval/run_eval.py --mode hybrid --qa eval/qa_paraphrase.jsonl --no-expand
+```

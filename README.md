@@ -11,7 +11,7 @@ A Retrieval-Augmented Generation (RAG) system for financial reports. Upload PDF 
 ## Features
 
 - **PDF upload** with asynchronous indexing (status: `pending → processing → completed / failed`)
-- **Hybrid retrieval**: `BAAI/bge-m3` vectors in PostgreSQL + pgvector, fused with BM25 (CJK bigrams) by reciprocal rank fusion; page-aware, sentence-level chunking
+- **Hybrid retrieval**: `BAAI/bge-m3` vectors in PostgreSQL + pgvector, fused by reciprocal rank fusion with BM25 over a **self-built inverted index** in PostgreSQL (CJK bigram postings, scored in SQL), plus finance synonym expansion; page-aware, sentence-level chunking
 - **Grounded answers** from a local LLM (Ollama + `qwen2.5`) with page citations, **streamed** to the UI with Server-Sent Events (time to first token ≈ 0.5 s vs ≈ 1.9 s for the full answer)
 - **Tool-calling agent** (`/agent`): searches several times, reads full pages and uses a calculator for multi-step questions; every step is returned and shown in the UI (Agent mode toggle with an expandable trace)
 - **MCP server**: exposes `list_documents`, `search_report` and `get_page` to any MCP client (Claude Code, Claude Desktop, other agents)
@@ -95,6 +95,8 @@ Upload a PDF in the sidebar, wait until its status becomes `completed`, select i
 | `POST` | `/documents/{id}/reindex` | Re-run parsing, chunking and embedding for a document |
 | `POST` | `/agent` | `{"question": "..."}` → `{"answer", "steps": [{"tool", "arguments", "result"}], "stopped_reason"}` |
 | `GET` | `/documents/{id}/pages/{page}` | Full text of one page |
+| `GET` | `/documents/{id}/chunks` | All chunks of a document (offline experiments) |
+| `POST` | `/documents/reindex` | Re-index every document |
 | `GET` | `/health` | DB and Redis status |
 
 ## MCP

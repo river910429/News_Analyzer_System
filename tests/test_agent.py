@@ -122,4 +122,10 @@ def test_critique_catches_tool_calls_written_as_text():
     from src.agent import critique
 
     feedback = critique("股利提高多少？", 'calculator("6.0 - 5.0") 得到 1.0，提高 1.0 元', [])
-    assert feedback is not None and "工具呼叫寫在回答文字裡" in feedback
+    assert feedback is not None and "並沒有真的呼叫" in feedback
+    # narrated in Chinese, as qwen2.5 did after the call syntax was removed from the prompt
+    narrated = "計算過程：呼叫 calculator 工具，算式為 59.9 - 56.1，得到 3.8"
+    steps = [{"tool": "search_report"}]
+    assert "並沒有真的呼叫" in critique("毛利率增加幾個百分點？", narrated, steps)
+    # mentioning a tool that really was called is fine
+    assert critique("毛利率增加幾個百分點？", narrated, steps + [{"tool": "calculator"}]) is None

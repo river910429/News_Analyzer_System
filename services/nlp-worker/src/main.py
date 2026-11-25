@@ -15,6 +15,7 @@ from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 
 from chunking import chunk_pages
+from indexing import SCHEMA_SQL, write_postings
 from tables import extract_table_chunks
 
 logging.basicConfig(
@@ -85,7 +86,7 @@ def ensure_schema() -> None:
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
-            cursor.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS page_number INTEGER")
+            cursor.execute(SCHEMA_SQL)
         conn.commit()
     finally:
         conn.close()
@@ -117,13 +118,16 @@ def process_document(conn, s3, doc_id: int, s3_key: str) -> None:
     # half a document searchable.
     with conn.cursor() as cursor:
         cursor.execute("DELETE FROM document_chunks WHERE document_id = %s", (doc_id,))
-        execute_values(
+        inserted = execute_values(
             cursor,
-            "INSERT INTO document_chunks (document_id, page_number, chunk_text, embedding) VALUES %s",
+            "INSERT INTO document_chunks (document_id, page_number, chunk_text, embedding) VALUES %s RETURNING id",
             [(doc_id, page, text, vec.tolist()) for (page, text), vec in zip(chunks, embeddings, strict=True)],
+            fetch=True,
         )
+        n_postings = write_postings(cursor, [row[0] for row in inserted], texts)
         cursor.execute("UPDATE documents SET status = 'completed' WHERE id = %s", (doc_id,))
     conn.commit()
+    logger.info("Doc %s: %d postings in the inverted index", doc_id, n_postings)
     logger.info("Doc %s: completed", doc_id)
 
 

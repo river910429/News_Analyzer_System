@@ -33,6 +33,7 @@ SYSTEM_PROMPT = """你是財報分析助理，透過工具查詢使用者上傳�
 第一步：呼叫 search_report 工具，查詢「毛利率 前一年」，得到「毛利率為59.9%，前一年為56.1%」（第 7 頁）。
 第二步：呼叫 calculator 工具，算式為 59.9 - 56.1，得到 3.8。
 最後回答：毛利率由 56.1% 增加至 59.9%，增加 3.8 個百分點（來源：第 7 頁）。
+（最後的回答只寫數字、算式與來源，不要提到工具名稱。）
 
 請用繁體中文簡潔回答。"""
 
@@ -50,8 +51,13 @@ def critique(question: str, answer: str, steps: List[Dict[str, Any]]) -> Optiona
     search. These checks catch both and ask the model to try again.
     """
     used = [s["tool"] for s in steps]
-    if any(f"{name}(" in answer for name in ("calculator", "search_report", "get_page")):
-        return "你把工具呼叫寫在回答文字裡了，工具並沒有被執行。請真的發出工具呼叫，拿到結果後再回答。"
+    # A tool named in the answer but never called means the model only pretended to use it.
+    faked = [name for name in ("calculator", "search_report", "get_page") if name in answer and name not in used]
+    if faked:
+        return (
+            f"你在回答裡提到 {', '.join(faked)}，但並沒有真的呼叫這個工具。"
+            "請發出工具呼叫拿到結果，最後的回答不要提到工具名稱。"
+        )
     if _REFUSAL in answer and used.count("search_report") + used.count("get_page") < 2:
         return "你只查了一次就說查不到。請換個關鍵字再用 search_report 查一次，或用 get_page 讀相關頁面，再回答。"
     if any(h in question for h in _CALC_HINTS) and "calculator" not in used and _REFUSAL not in answer:

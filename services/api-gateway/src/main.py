@@ -23,7 +23,9 @@ from sentence_transformers import SentenceTransformer
 
 from .agent import calculator as calculator_tool
 from .agent import run_agent
-from .lexical import LexicalIndex, reciprocal_rank_fusion
+from .lexical import reciprocal_rank_fusion
+from .query_expansion import expand_query
+from .tokenizer import tokenize
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -53,6 +55,7 @@ CANDIDATES = int(os.getenv("RETRIEVAL_CANDIDATES", "30"))  # per retriever, befo
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")
 RERANK_BY_DEFAULT = os.getenv("RERANK_BY_DEFAULT", "false").lower() == "true"
 RERANK_CANDIDATES = int(os.getenv("RERANK_CANDIDATES", "20"))
+QUERY_EXPANSION = os.getenv("QUERY_EXPANSION", "true").lower() == "true"  # synonym expansion for BM25
 ETL_QUEUE = "etl_queue"
 
 @asynccontextmanager
@@ -122,9 +125,23 @@ class RetrieveRequest(BaseModel):
     top_k: int = Field(10, ge=1, le=50)
     mode: Optional[Mode] = None
     rerank: Optional[bool] = None
+    expand: Optional[bool] = Field(None, description="BM25 查詢是否做同義詞擴展，預設依 QUERY_EXPANSION")
     apply_threshold: bool = Field(
         False, description="評估時預設不套用相似度門檻，才能看到完整的排序"
     )
+
+
+SCHEMA_SQL = """
+ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS page_number INTEGER;
+ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS token_count INTEGER;
+CREATE TABLE IF NOT EXISTS postings (
+    term TEXT NOT NULL,
+    chunk_id INTEGER NOT NULL REFERENCES document_chunks(id) ON DELETE CASCADE,
+    tf INTEGER NOT NULL,
+    PRIMARY KEY (term, chunk_id)
+);
+CREATE INDEX IF NOT EXISTS postings_chunk_id_idx ON postings (chunk_id);
+"""
 
 
 def ensure_schema() -> None:
@@ -132,7 +149,7 @@ def ensure_schema() -> None:
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
-            cursor.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS page_number INTEGER")
+            cursor.execute(SCHEMA_SQL)
         conn.commit()
     finally:
         conn.close()
@@ -225,6 +242,23 @@ def list_documents():
     ]
 
 
+@app.post("/documents/reindex")
+def reindex_all():
+    """Queue every document for re-indexing (after changing chunking or the inverted index)."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE documents SET status = 'pending' RETURNING id, s3_key, filename")
+            rows = cursor.fetchall()
+        conn.commit()
+    finally:
+        conn.close()
+    for doc_id, s3_key, filename in rows:
+        redis_client.lpush(ETL_QUEUE, json.dumps({"doc_id": doc_id, "s3_key": s3_key, "filename": filename}))
+    logger.info("Queued re-index of %d documents", len(rows))
+    return {"status": "queued", "documents": len(rows)}
+
+
 @app.post("/documents/{doc_id}/reindex")
 def reindex_document(doc_id: int):
     """Re-run parsing/chunking/embedding for an uploaded document (e.g. after changing the chunker)."""
@@ -247,27 +281,43 @@ def reindex_document(doc_id: int):
     return {"status": "queued", "doc_id": doc_id}
 
 
-def _chunk_signature():
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT count(*), coalesce(max(id), 0) FROM document_chunks")
-            return cursor.fetchone()
-    finally:
-        conn.close()
+BM25_K1 = 1.5
+BM25_B = 0.75
+
+# BM25 over the inverted index. df and avgdl are computed per query, so new documents
+# are searchable as soon as the worker commits them.
+BM25_SQL = """
+WITH q AS (SELECT DISTINCT unnest(%(terms)s::text[]) AS term),
+stats AS (
+    SELECT count(*)::float AS n, avg(token_count)::float AS avgdl
+    FROM document_chunks WHERE token_count IS NOT NULL
+),
+df AS (
+    SELECT p.term, count(*)::float AS df
+    FROM postings p JOIN q ON p.term = q.term
+    GROUP BY p.term
+)
+SELECT p.chunk_id,
+       sum(ln(1 + (s.n - df.df + 0.5) / (df.df + 0.5))
+           * p.tf * (%(k1)s + 1)
+           / (p.tf + %(k1)s * (1 - %(b)s + %(b)s * c.token_count / s.avgdl))) AS score
+FROM postings p
+JOIN df ON df.term = p.term
+JOIN document_chunks c ON c.id = p.chunk_id
+CROSS JOIN stats s
+GROUP BY p.chunk_id
+ORDER BY score DESC, p.chunk_id
+LIMIT %(limit)s
+"""
 
 
-def _all_chunks():
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT id, chunk_text FROM document_chunks ORDER BY id")
-            return cursor.fetchall()
-    finally:
-        conn.close()
-
-
-lexical_index = LexicalIndex(_chunk_signature, _all_chunks)
+def bm25_search(cursor, query: str, limit: int) -> List[int]:
+    """Chunk ids ranked by BM25 over the postings table."""
+    terms = sorted(set(tokenize(query)))
+    if not terms:
+        return []
+    cursor.execute(BM25_SQL, {"terms": terms, "k1": BM25_K1, "b": BM25_B, "limit": limit})
+    return [row[0] for row in cursor.fetchall()]
 
 _reranker = None
 _reranker_lock = threading.Lock()
@@ -292,6 +342,7 @@ def retrieve(
     apply_threshold: bool = True,
     mode: Optional[str] = None,
     rerank: Optional[bool] = None,
+    expand: Optional[bool] = None,
 ) -> List[SearchResult]:
     """Hybrid retrieval: vector search + BM25, combined with reciprocal rank fusion.
 
@@ -304,6 +355,7 @@ def retrieve(
     """
     mode = mode or RETRIEVAL_MODE
     rerank = RERANK_BY_DEFAULT if rerank is None else rerank
+    expand = QUERY_EXPANSION if expand is None else expand
     query_vector = str(model.encode(query, normalize_embeddings=True).tolist())
     n_candidates = max(CANDIDATES, top_k)
 
@@ -317,7 +369,8 @@ def retrieve(
                     (query_vector, n_candidates),
                 )
                 vector_ids = [r[0] for r in cursor.fetchall()]
-            bm25_ids = lexical_index.search(query, n_candidates) if mode in ("hybrid", "bm25") else []
+            bm25_query = expand_query(query) if expand else query
+            bm25_ids = bm25_search(cursor, bm25_query, n_candidates) if mode in ("hybrid", "bm25") else []
 
             rankings = [r for r in (vector_ids, bm25_ids) if r]
             fused = reciprocal_rank_fusion(rankings)
@@ -527,6 +580,21 @@ def page_text(doc_id: int, page: int) -> str:
     return merge_chunks(chunks)
 
 
+@app.get("/documents/{doc_id}/chunks")
+def list_chunks(doc_id: int):
+    """All chunks of a document (for offline experiments such as the tokenizer benchmark)."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, page_number, chunk_text FROM document_chunks WHERE document_id = %s ORDER BY id",
+                (doc_id,),
+            )
+            return [{"id": r[0], "page": r[1], "text": r[2]} for r in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
 @app.get("/documents/{doc_id}/pages/{page}")
 def get_page(doc_id: int, page: int):
     text = page_text(doc_id, page)
@@ -611,7 +679,9 @@ def agent(request: AgentRequest):
 def retrieve_only(request: RetrieveRequest):
     """Retrieval without calling the LLM. Used by eval/run_eval.py to measure Hit@k / MRR."""
     try:
-        return retrieve(request.query, request.top_k, request.apply_threshold, request.mode, request.rerank)
+        return retrieve(
+            request.query, request.top_k, request.apply_threshold, request.mode, request.rerank, request.expand
+        )
     except Exception as e:
         logger.exception("Retrieve failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
