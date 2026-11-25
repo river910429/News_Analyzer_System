@@ -60,7 +60,8 @@ python eval/run_eval.py --qa eval/agent_qa.jsonl --agent     # tool-calling agen
 |---|---|---|---|
 | RAG (/search), qwen2.5 7B | 0.583 | – | 1.3 |
 | Agent v1 (/agent), qwen2.5 7B | 0.417 | 1.08 | 1.7 |
-| Agent v2: new prompt + critique checks | | | |
+| Agent v2: new prompt + critique checks | **0.750** | 1.50 | 4.2 |
+| Agent v3: no call syntax in the example, catch fake tool calls, same-table rule | | | |
 
 Scores were re-checked with `--rescore` after fixing the checker ("4.0元" now matches "4").
 
@@ -76,3 +77,14 @@ Avg 1.08 tool calls: the model almost never searched twice or used the calculato
 v2 changes: a step-by-step system prompt with a worked example, and harness-side
 **critique checks** that send a draft back once if it gives up after a single search or
 answers a calculation question without calling the calculator.
+
+**Agent v2 remaining failures** (3 of 12):
+
+| Failure | Cause |
+|---|---|
+| Dividend: used quarterly dividends (p39) instead of the annual 18.0 vs 14.0 (p7) | retrieval picked the wrong passage; the model wrote `calculator("6.0 - 5.0")` as text instead of calling it, copying the call syntax from the prompt's example |
+| Debt ratio 23.4%: consolidated assets ÷ **parent-only** liabilities | page 64 holds both balance sheets and pypdf loses the table headers, so the two tables cannot be told apart |
+| Professional staff 46.8% | a number read from a garbled table on p59 |
+
+The table problems point at ingestion, not the agent: a layout-aware PDF parser that keeps
+table headers would fix them at the source.

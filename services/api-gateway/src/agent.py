@@ -25,11 +25,14 @@ SYSTEM_PROMPT = """你是財報分析助理，透過工具查詢使用者上傳�
 5. 回答要列出用到的數字與算式，數字照抄並註明單位，最後用「（來源：第 N 頁）」標註頁碼。
 6. 確實查了兩次以上仍找不到，才回答「根據目前的文件，無法得知此資訊」。
 
-範例：
+7. 同一頁可能同時有「合併」與「個體」報表，兩組數字大小不同；計算時兩個數字必須來自同一張表。
+8. 使用工具時一定要真的發出工具呼叫，不要在回答文字裡寫出工具名稱或假裝的呼叫結果。
+
+範例流程：
 問題：毛利率比前一年增加幾個百分點？
-→ search_report("毛利率 前一年") 得到「毛利率為59.9%，前一年為56.1%」（第 7 頁）
-→ calculator("59.9 - 56.1") 得到 3.8
-→ 回答：毛利率由 56.1% 增加至 59.9%，增加 3.8 個百分點（來源：第 7 頁）。
+第一步：呼叫 search_report 工具，查詢「毛利率 前一年」，得到「毛利率為59.9%，前一年為56.1%」（第 7 頁）。
+第二步：呼叫 calculator 工具，算式為 59.9 - 56.1，得到 3.8。
+最後回答：毛利率由 56.1% 增加至 59.9%，增加 3.8 個百分點（來源：第 7 頁）。
 
 請用繁體中文簡潔回答。"""
 
@@ -47,6 +50,8 @@ def critique(question: str, answer: str, steps: List[Dict[str, Any]]) -> Optiona
     search. These checks catch both and ask the model to try again.
     """
     used = [s["tool"] for s in steps]
+    if any(f"{name}(" in answer for name in ("calculator", "search_report", "get_page")):
+        return "你把工具呼叫寫在回答文字裡了，工具並沒有被執行。請真的發出工具呼叫，拿到結果後再回答。"
     if _REFUSAL in answer and used.count("search_report") + used.count("get_page") < 2:
         return "你只查了一次就說查不到。請換個關鍵字再用 search_report 查一次，或用 get_page 讀相關頁面，再回答。"
     if any(h in question for h in _CALC_HINTS) and "calculator" not in used and _REFUSAL not in answer:

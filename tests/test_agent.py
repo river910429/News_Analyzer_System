@@ -116,3 +116,10 @@ def test_critiques_are_limited():
     result = run_agent("差多少？", chat, {"calculator": calculator}, max_critiques=2)
     assert len(result["critiques"]) == 2
     assert result["answer"] == "無法得知"
+
+
+def test_critique_catches_tool_calls_written_as_text():
+    from src.agent import critique
+
+    feedback = critique("股利提高多少？", 'calculator("6.0 - 5.0") 得到 1.0，提高 1.0 元', [])
+    assert feedback is not None and "工具呼叫寫在回答文字裡" in feedback
