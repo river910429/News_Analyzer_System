@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
-from lexical import LexicalIndex, reciprocal_rank_fusion
+from .lexical import LexicalIndex, reciprocal_rank_fusion
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
