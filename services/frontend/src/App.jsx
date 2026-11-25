@@ -63,26 +63,57 @@ export default function Dashboard() {
         setChatHistory(prev => [...prev, { role: 'user', text: userQ }]);
 
         try {
-            const res = await axios.post(`${API_URL}/search`, {
-                query: userQ,
-                top_k: 5
+            // Stream the answer with Server-Sent Events: sources first, then tokens as they are generated.
+            const res = await fetch(`${API_URL}/search/stream`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: userQ, top_k: 5 }),
+            });
+            if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+
+            setChatHistory(prev => [...prev, { role: 'ai', text: '' }]);
+            const setLastAiText = (text) => setChatHistory(prev => {
+                const next = [...prev];
+                next[next.length - 1] = { role: 'ai', text };
+                return next;
             });
 
-            // 解構後端傳來的 ChatResponse
-            const { answer, sources } = res.data;
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let answer = '';
+            let sources = [];
 
-            let aiResponse = answer;
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
 
-            // 如果有參考來源，把它們折疊或附在下方
-            if (sources && sources.length > 0) {
-                const sourceText = sources.map((doc, idx) =>
-                    `[${idx + 1}] ${doc.filename}${doc.page ? ` 第 ${doc.page} 頁` : ''} (相似度: ${(doc.similarity_score * 100).toFixed(1)}%)`
-                ).join('\n');
+                const events = buffer.split('\n\n');
+                buffer = events.pop(); // keep an incomplete event for the next read
+                for (const raw of events) {
+                    if (!raw.startsWith('data: ')) continue;
+                    const event = JSON.parse(raw.slice(6));
 
-                aiResponse += `\n\n---\n📑 參考來源：\n${sourceText}`;
+                    if (event.type === 'sources') {
+                        sources = event.sources;
+                    } else if (event.type === 'token') {
+                        answer += event.text;
+                        setLastAiText(answer);
+                    } else if (event.type === 'error') {
+                        answer += `\n\n⚠️ 生成中斷：${event.message}`;
+                        setLastAiText(answer);
+                    } else if (event.type === 'done') {
+                        const sourceText = sources.map((doc, idx) =>
+                            `[${idx + 1}] ${doc.filename}${doc.page ? ` 第 ${doc.page} 頁` : ''} (相似度: ${(doc.similarity_score * 100).toFixed(1)}%)`
+                        ).join('\n');
+                        const timing = `⏱ 首字 ${(event.ttft_ms / 1000).toFixed(1)}s ・ 完成 ${(event.total_ms / 1000).toFixed(1)}s`;
+                        setLastAiText(sources.length
+                            ? `${answer}\n\n---\n📑 參考來源：\n${sourceText}\n${timing}`
+                            : answer);
+                    }
+                }
             }
-
-            setChatHistory(prev => [...prev, { role: 'ai', text: aiResponse }]);
 
         } catch (err) {
             console.error(err);

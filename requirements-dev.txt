@@ -10,3 +10,4 @@ redis
 boto3
 requests
 python-multipart
+httpx

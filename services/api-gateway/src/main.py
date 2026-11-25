@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import threading
+import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import List, Literal, Optional
@@ -16,6 +17,7 @@ from botocore.client import Config
 from botocore.exceptions import ClientError
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
@@ -379,19 +381,48 @@ def build_prompt(query: str, sources: List[SearchResult]) -> str:
 """
 
 
+NO_RESULT_ANSWER = "抱歉，根據目前上傳的文件，我找不到與您問題相關的資訊。"
+
+
+def _ollama_payload(prompt: str, stream: bool) -> dict:
+    return {
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": stream,
+        "options": {"temperature": 0.1},  # factual Q&A: keep answers deterministic
+    }
+
+
 def generate(prompt: str) -> str:
     response = requests.post(
-        f"{OLLAMA_URL}/api/generate",
-        json={
-            "model": OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": 0.1},  # factual Q&A: keep answers deterministic
-        },
-        timeout=OLLAMA_TIMEOUT,
+        f"{OLLAMA_URL}/api/generate", json=_ollama_payload(prompt, False), timeout=OLLAMA_TIMEOUT
     )
     response.raise_for_status()
     return response.json().get("response", "無法生成回答").strip()
+
+
+def generate_stream(prompt: str):
+    """Yield answer text pieces as Ollama produces them (it streams one JSON object per line)."""
+    with requests.post(
+        f"{OLLAMA_URL}/api/generate",
+        json=_ollama_payload(prompt, True),
+        stream=True,
+        timeout=OLLAMA_TIMEOUT,
+    ) as response:
+        response.raise_for_status()
+        for line in response.iter_lines():
+            if not line:
+                continue
+            data = json.loads(line)
+            if data.get("response"):
+                yield data["response"]
+            if data.get("done"):
+                break
+
+
+def sse(event: dict) -> str:
+    """Format one Server-Sent Event."""
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 @app.post("/search", response_model=ChatResponse)
@@ -400,9 +431,7 @@ def search_and_generate(request: SearchRequest):
     try:
         sources = retrieve(request.query, request.top_k, mode=request.mode, rerank=request.rerank)
         if not sources:
-            return ChatResponse(
-                answer="抱歉，根據目前上傳的文件，我找不到與您問題相關的資訊。", sources=[]
-            )
+            return ChatResponse(answer=NO_RESULT_ANSWER, sources=[])
 
         logger.info("Calling Ollama (%s) with %d sources", OLLAMA_MODEL, len(sources))
         answer = generate(build_prompt(request.query, sources))
@@ -410,6 +439,54 @@ def search_and_generate(request: SearchRequest):
     except Exception as e:
         logger.exception("RAG search failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/search/stream")
+def search_stream(request: SearchRequest):
+    """Same as /search, but streams the answer as Server-Sent Events.
+
+    Events (JSON in each `data:` line):
+      {"type": "sources", "sources": [...]}   once, before the answer
+      {"type": "token", "text": "..."}        many, as the LLM generates
+      {"type": "done", "ttft_ms": int, "total_ms": int}
+      {"type": "error", "message": "..."}     if generation fails midway
+    """
+    started = time.perf_counter()
+    try:
+        sources = retrieve(request.query, request.top_k, mode=request.mode, rerank=request.rerank)
+    except Exception as e:
+        logger.exception("Retrieval failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    def events():
+        yield sse({"type": "sources", "sources": [s.model_dump() for s in sources]})
+        if not sources:
+            yield sse({"type": "token", "text": NO_RESULT_ANSWER})
+            yield sse({"type": "done", "ttft_ms": 0, "total_ms": round((time.perf_counter() - started) * 1000)})
+            return
+
+        first_token_at = None
+        try:
+            for piece in generate_stream(build_prompt(request.query, sources)):
+                if first_token_at is None:
+                    first_token_at = time.perf_counter()
+                yield sse({"type": "token", "text": piece})
+        except Exception as e:
+            logger.exception("Streaming generation failed")
+            yield sse({"type": "error", "message": str(e)})
+            return
+
+        now = time.perf_counter()
+        ttft = round(((first_token_at or now) - started) * 1000)
+        total = round((now - started) * 1000)
+        logger.info("Streamed answer: time to first token %d ms, total %d ms", ttft, total)
+        yield sse({"type": "done", "ttft_ms": ttft, "total_ms": total})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/retrieve", response_model=List[SearchResult])

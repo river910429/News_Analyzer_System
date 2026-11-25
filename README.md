@@ -86,7 +86,11 @@ Upload a PDF in the sidebar, wait until its status becomes `completed`, select i
 |---|---|---|
 | `POST` | `/upload` | Upload a PDF (multipart `file`); queues it for indexing |
 | `GET` | `/documents` | List documents and their indexing status |
-| `POST` | `/search` | `{"query": "...", "top_k": 3}` → `{"answer": "...", "sources": [...]}` |
+| `POST` | `/search` | `{"query": "...", "top_k": 5}` → `{"answer": "...", "sources": [...]}` |
+| `POST` | `/search/stream` | Same input; answer streamed as Server-Sent Events (`sources`, `token`…, `done` with time-to-first-token) |
+| `POST` | `/retrieve` | Retrieval only (no LLM), used by the evaluation script |
+| `POST` | `/documents/{id}/reindex` | Re-run parsing, chunking and embedding for a document |
+| `GET` | `/health` | DB and Redis status |
 
 ## Evaluation
 
