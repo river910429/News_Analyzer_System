@@ -118,6 +118,10 @@ Retrieval quality is measured on a 43-question set for the 2025 TSMC annual repo
 |---|---|---|---|
 | Baseline: fixed 500-char chunks, vector search | 0.581 | 0.884 | 0.719 |
 | Page + sentence chunks, hybrid (vector + BM25, RRF) | 0.698 | **0.977** | 0.799 |
+| + labelled table chunks (pdfplumber) | 0.698 | **0.977** | **0.807** |
+
+Multi-step questions (12, need two facts + a calculation): plain RAG **58%** correct,
+tool-calling agent with critique checks and table chunks **83%**.
 
 ## Testing
 

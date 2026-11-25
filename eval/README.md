@@ -32,7 +32,11 @@ QA set: 43 questions on *2025 TSMC Annual Report* (`eval/qa.jsonl`), top-10 retr
 | page + sentence chunks | 500 chars, per page | vector | 0.581 | 0.860 | 0.930 | 0.953 | 0.718 |
 | page + sentence chunks | 500 chars, per page | BM25 (CJK bigrams) | 0.744 | 0.907 | 0.930 | 0.977 | 0.831 |
 | page + sentence chunks | 500 chars, per page | **hybrid (RRF)** | 0.698 | 0.884 | **0.977** | 0.977 | 0.799 |
-| page + sentence chunks | 500 chars, per page | hybrid + reranker | | | | | |
+| page + sentence chunks | 500 chars, per page | hybrid + reranker (bge-reranker-base) | 0.698 | 0.930 | 0.930 | 0.953 | 0.801 |
+| + labelled table chunks | as above + pdfplumber tables | **hybrid** | 0.698 | **0.930** | **0.977** | **1.000** | **0.807** |
+
+The reranker was not adopted: Hit@5 dropped from 0.977 to 0.930 and each query got slower.
+With table chunks every question's answer is in the top 10, including the one no setup found before.
 
 Hybrid is the default: the LLM receives the top 5 chunks, and hybrid has the best Hit@5
 (42/43 questions have the answer in the context, vs 37/43 for the baseline).
@@ -62,8 +66,7 @@ python eval/run_eval.py --qa eval/agent_qa.jsonl --agent     # tool-calling agen
 | Agent v1 (/agent), qwen2.5 7B | 0.417 | 1.08 | 1.7 |
 | Agent v2: new prompt + critique checks | **0.750** | 1.50 | 4.2 |
 | Agent v2 prompt, **qwen3 8B** | 0.583 | 3.83 | 25.0 |
-| Agent v3: no call syntax in the example, catch fake tool calls, same-table rule | | | |
-| Agent v3 + labelled table chunks (pdfplumber) | | | |
+| **Agent v3 + labelled table chunks (pdfplumber)** | **0.833** | 1.50 | 4.4 |
 
 qwen3 8B searched more (3.8 tool calls) but was 6× slower and twice copied the prompt's
 worked example as its answer to an unrelated question, so qwen2.5 7B stays the default.
@@ -100,3 +103,11 @@ that start with the table title and column header, e.g.
 `【台積公司及子公司財務報表（合併報表）】 / 項目 民國114年 民國113年 增減金額 …`.
 Offline check: retrieval metrics are unchanged (BM25 Hit@1 0.791 → 0.791), and consolidated vs
 parent-only rows are now distinguishable.
+
+**Remaining agent failures** (2 of 12) are the model reading the wrong cell even from a
+labelled table: parent-only liabilities divided by consolidated assets, and the 113 column of
+the staff table instead of 114. Next options: a stronger model for comparison, or returning
+tables to the agent as structured rows (year → value) instead of text.
+
+**Summary on the 12 multi-step questions:** plain RAG 0.583 → agent v1 0.417 → v2 0.750 →
+v3 + table chunks **0.833**, at about 3 s extra per question.

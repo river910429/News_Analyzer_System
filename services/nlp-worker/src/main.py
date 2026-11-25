@@ -157,6 +157,10 @@ def main() -> None:
             if item is None:
                 continue
             handle_task(item[1])
+        except (redis.exceptions.TimeoutError, redis.exceptions.ConnectionError) as e:
+            # An idle Redis connection can time out; redis-py reconnects on the next call.
+            logger.warning("Redis connection issue (%s), retrying", e.__class__.__name__)
+            time.sleep(2)
         except Exception:
             # Keep the worker alive on unexpected errors (e.g. Redis/DB briefly down).
             logger.exception("Unexpected error in worker loop")
