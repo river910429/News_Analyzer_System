@@ -29,9 +29,13 @@ QA set: 43 questions on *2025 TSMC Annual Report* (`eval/qa.jsonl`), top-10 retr
 | Run | Chunking | Retriever | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR |
 |---|---|---|---|---|---|---|---|
 | baseline | fixed 500 chars | vector (bge-m3) | 0.581 | 0.814 | 0.884 | 0.977 | 0.719 |
-| page + sentence chunks | 500 chars, per page | BM25 (offline check) | 0.791 | 0.953 | 0.953 | 1.000 | 0.872 |
-| page + sentence chunks | 500 chars, per page | vector | | | | | |
-| page + sentence chunks | 500 chars, per page | hybrid (RRF) | | | | | |
+| page + sentence chunks | 500 chars, per page | vector | 0.581 | 0.860 | 0.930 | 0.953 | 0.718 |
+| page + sentence chunks | 500 chars, per page | BM25 (CJK bigrams) | 0.744 | 0.907 | 0.930 | 0.977 | 0.831 |
+| page + sentence chunks | 500 chars, per page | **hybrid (RRF)** | 0.698 | 0.884 | **0.977** | 0.977 | 0.799 |
+| page + sentence chunks | 500 chars, per page | hybrid + reranker | | | | | |
+
+Hybrid is the default: the LLM receives the top 5 chunks, and hybrid has the best Hit@5
+(42/43 questions have the answer in the context, vs 37/43 for the baseline).
 
 Compare retrievers on the running system:
 

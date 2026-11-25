@@ -74,10 +74,11 @@ def main() -> None:
     parser.add_argument("--top-k", type=int, default=max(KS))
     parser.add_argument("--answers", action="store_true", help="also call /search and check the LLM answers")
     parser.add_argument("--mode", choices=["hybrid", "vector", "bm25"], help="retriever to use (default: server setting)")
+    parser.add_argument("--rerank", action="store_true", help="re-rank with the cross-encoder (first call downloads the model)")
     parser.add_argument("--tag", help="name of this run (default: the mode)")
     args = parser.parse_args()
 
-    args.tag = args.tag or args.mode or "default"
+    args.tag = args.tag or ((args.mode or "default") + ("-rerank" if args.rerank else ""))
     qa = load_qa(Path(args.qa))
     if not qa:
         sys.exit(f"No questions found in {args.qa} (only comments?)")
@@ -86,7 +87,7 @@ def main() -> None:
     rows = []
     for i, item in enumerate(qa, start=1):
         t0 = time.time()
-        chunks = post(f"{args.api}/retrieve", {"query": item["question"], "top_k": args.top_k, "mode": args.mode}, 60)
+        chunks = post(f"{args.api}/retrieve", {"query": item["question"], "top_k": args.top_k, "mode": args.mode, "rerank": args.rerank or None}, 60)
         rank = first_relevant_rank(chunks, item["keywords"])
         row = {
             "id": item.get("id", i),
@@ -98,7 +99,7 @@ def main() -> None:
 
         if args.answers:
             t0 = time.time()
-            res = post(f"{args.api}/search", {"query": item["question"], "top_k": 5, "mode": args.mode}, 300)
+            res = post(f"{args.api}/search", {"query": item["question"], "top_k": 5, "mode": args.mode, "rerank": args.rerank or None}, 300)
             answer = res["answer"]
             expected = item.get("answer_keywords") or item["keywords"]
             row["answer"] = answer

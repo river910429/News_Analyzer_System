@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import threading
 import uuid
 from typing import List, Literal, Optional
 
@@ -43,6 +44,10 @@ OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "120"))
 SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.4"))
 RETRIEVAL_MODE = os.getenv("RETRIEVAL_MODE", "hybrid")  # hybrid | vector | bm25
 CANDIDATES = int(os.getenv("RETRIEVAL_CANDIDATES", "30"))  # per retriever, before fusion
+# Cross-encoder reranker, loaded only when first used. RERANK_BY_DEFAULT applies to /search.
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")
+RERANK_BY_DEFAULT = os.getenv("RERANK_BY_DEFAULT", "false").lower() == "true"
+RERANK_CANDIDATES = int(os.getenv("RERANK_CANDIDATES", "20"))
 ETL_QUEUE = "etl_queue"
 
 app = FastAPI(title="Financial Report RAG API")
@@ -84,6 +89,7 @@ class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1, description="使用者的搜尋問題")
     top_k: int = Field(5, ge=1, le=10, description="要回傳幾筆最相關的結果")
     mode: Optional[Mode] = Field(None, description="檢索方式，預設用 RETRIEVAL_MODE")
+    rerank: Optional[bool] = Field(None, description="是否用 reranker 重新排序，預設依 RERANK_BY_DEFAULT")
 
 
 class SearchResult(BaseModel):
@@ -102,6 +108,7 @@ class RetrieveRequest(BaseModel):
     query: str = Field(..., min_length=1)
     top_k: int = Field(10, ge=1, le=50)
     mode: Optional[Mode] = None
+    rerank: Optional[bool] = None
     apply_threshold: bool = Field(
         False, description="評估時預設不套用相似度門檻，才能看到完整的排序"
     )
@@ -230,9 +237,29 @@ def _all_chunks():
 
 lexical_index = LexicalIndex(_chunk_signature, _all_chunks)
 
+_reranker = None
+_reranker_lock = threading.Lock()
+
+
+def get_reranker():
+    """Load the cross-encoder on first use, so startup stays fast when it is unused."""
+    global _reranker
+    with _reranker_lock:
+        if _reranker is None:
+            from sentence_transformers import CrossEncoder
+
+            logger.info("Loading reranker %s ...", RERANKER_MODEL)
+            _reranker = CrossEncoder(RERANKER_MODEL, max_length=512)
+            logger.info("Reranker loaded")
+    return _reranker
+
 
 def retrieve(
-    query: str, top_k: int, apply_threshold: bool = True, mode: Optional[str] = None
+    query: str,
+    top_k: int,
+    apply_threshold: bool = True,
+    mode: Optional[str] = None,
+    rerank: Optional[bool] = None,
 ) -> List[SearchResult]:
     """Hybrid retrieval: vector search + BM25, combined with reciprocal rank fusion.
 
@@ -240,8 +267,11 @@ def retrieve(
     With apply_threshold, a chunk is kept if its cosine similarity passes the
     threshold or BM25 ranked it within top_k (exact keyword matches such as
     numbers often have modest cosine similarity).
+    With rerank, the top RERANK_CANDIDATES fused chunks are re-scored by a
+    cross-encoder that reads question and chunk together.
     """
     mode = mode or RETRIEVAL_MODE
+    rerank = RERANK_BY_DEFAULT if rerank is None else rerank
     query_vector = str(model.encode(query, normalize_embeddings=True).tolist())
     n_candidates = max(CANDIDATES, top_k)
 
@@ -259,7 +289,8 @@ def retrieve(
 
             rankings = [r for r in (vector_ids, bm25_ids) if r]
             fused = reciprocal_rank_fusion(rankings)
-            ranked_ids = sorted(fused, key=lambda i: -fused[i])[:top_k]
+            n_keep = max(RERANK_CANDIDATES, top_k) if rerank else top_k
+            ranked_ids = sorted(fused, key=lambda i: -fused[i])[:n_keep]
             if not ranked_ids:
                 return []
 
@@ -275,6 +306,11 @@ def retrieve(
             rows = {r[0]: r for r in cursor.fetchall()}
     finally:
         conn.close()
+
+    if rerank:
+        scores = get_reranker().predict([(query, rows[i][3]) for i in ranked_ids])
+        order = sorted(range(len(ranked_ids)), key=lambda j: -scores[j])
+        ranked_ids = [ranked_ids[j] for j in order[:top_k]]
 
     bm25_top = set(bm25_ids[:top_k])
     results = []
@@ -335,7 +371,7 @@ def generate(prompt: str) -> str:
 def search_and_generate(request: SearchRequest):
     """RAG: retrieve relevant chunks from pgvector, then ask Ollama to answer from them."""
     try:
-        sources = retrieve(request.query, request.top_k, mode=request.mode)
+        sources = retrieve(request.query, request.top_k, mode=request.mode, rerank=request.rerank)
         if not sources:
             return ChatResponse(
                 answer="抱歉，根據目前上傳的文件，我找不到與您問題相關的資訊。", sources=[]
@@ -353,7 +389,7 @@ def search_and_generate(request: SearchRequest):
 def retrieve_only(request: RetrieveRequest):
     """Retrieval without calling the LLM. Used by eval/run_eval.py to measure Hit@k / MRR."""
     try:
-        return retrieve(request.query, request.top_k, request.apply_threshold, request.mode)
+        return retrieve(request.query, request.top_k, request.apply_threshold, request.mode, request.rerank)
     except Exception as e:
         logger.exception("Retrieve failed")
         raise HTTPException(status_code=500, detail=str(e))
