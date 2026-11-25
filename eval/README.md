@@ -61,7 +61,12 @@ python eval/run_eval.py --qa eval/agent_qa.jsonl --agent     # tool-calling agen
 | RAG (/search), qwen2.5 7B | 0.583 | – | 1.3 |
 | Agent v1 (/agent), qwen2.5 7B | 0.417 | 1.08 | 1.7 |
 | Agent v2: new prompt + critique checks | **0.750** | 1.50 | 4.2 |
+| Agent v2 prompt, **qwen3 8B** | 0.583 | 3.83 | 25.0 |
 | Agent v3: no call syntax in the example, catch fake tool calls, same-table rule | | | |
+| Agent v3 + labelled table chunks (pdfplumber) | | | |
+
+qwen3 8B searched more (3.8 tool calls) but was 6× slower and twice copied the prompt's
+worked example as its answer to an unrelated question, so qwen2.5 7B stays the default.
 
 Scores were re-checked with `--rescore` after fixing the checker ("4.0元" now matches "4").
 
@@ -88,3 +93,10 @@ answers a calculation question without calling the calculator.
 
 The table problems point at ingestion, not the agent: a layout-aware PDF parser that keeps
 table headers would fix them at the source.
+
+**Fix at the source: labelled table chunks.** The worker now also reads every page with
+pdfplumber, splits two-page spreads into halves, and stores each number table as extra chunks
+that start with the table title and column header, e.g.
+`【台積公司及子公司財務報表（合併報表）】 / 項目 民國114年 民國113年 增減金額 …`.
+Offline check: retrieval metrics are unchanged (BM25 Hit@1 0.791 → 0.791), and consolidated vs
+parent-only rows are now distinguishable.

@@ -15,6 +15,7 @@ from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 
 from chunking import chunk_pages
+from tables import extract_table_chunks
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -100,11 +101,14 @@ def process_document(conn, s3, doc_id: int, s3_key: str) -> None:
     set_status(conn, doc_id, "processing")
 
     obj = s3.get_object(Bucket=MINIO_BUCKET, Key=s3_key)
-    pages = extract_pages(obj["Body"].read())
+    pdf_bytes = obj["Body"].read()
+    pages = extract_pages(pdf_bytes)
     logger.info("Doc %s: extracted %d pages", doc_id, len(pages))
 
     chunks = chunk_pages(pages, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)
-    logger.info("Doc %s: %d chunks, embedding...", doc_id, len(chunks))
+    table_chunks = extract_table_chunks(pdf_bytes)
+    chunks += table_chunks
+    logger.info("Doc %s: %d chunks (%d table chunks), embedding...", doc_id, len(chunks), len(table_chunks))
     texts = [text for _, text in chunks]
     embeddings = model.encode(texts, batch_size=16, normalize_embeddings=True) if texts else []
 

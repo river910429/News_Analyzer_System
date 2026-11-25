@@ -6,4 +6,4 @@ select = ["E", "F", "W", "I", "B"]
 ignore = ["B008"]
 
 [lint.isort]
-known-first-party = ["chunking", "src", "run_eval"]
+known-first-party = ["chunking", "tables", "src", "run_eval"]
