@@ -53,6 +53,16 @@ def first_relevant_rank(chunks: list, keywords: list) -> int:
     return 0
 
 
+def summarize(rows: list, ks, with_answers: bool = False) -> dict:
+    """Hit@k and MRR from per-question ranks (0 = not found)."""
+    n = len(rows)
+    summary = {f"hit@{k}": round(sum(1 for r in rows if 0 < r["rank"] <= k) / n, 3) for k in ks}
+    summary["mrr"] = round(sum(1 / r["rank"] for r in rows if r["rank"]) / n, 3)
+    if with_answers:
+        summary["answer_hit"] = round(sum(r["answer_hit"] for r in rows) / n, 3)
+    return summary
+
+
 def load_qa(path: Path) -> list:
     items = []
     with path.open(encoding="utf-8") as f:
@@ -73,8 +83,12 @@ def main() -> None:
     parser.add_argument("--qa", default=str(HERE / "qa.jsonl"))
     parser.add_argument("--top-k", type=int, default=max(KS))
     parser.add_argument("--answers", action="store_true", help="also call /search and check the LLM answers")
-    parser.add_argument("--mode", choices=["hybrid", "vector", "bm25"], help="retriever to use (default: server setting)")
-    parser.add_argument("--rerank", action="store_true", help="re-rank with the cross-encoder (first call downloads the model)")
+    parser.add_argument(
+        "--mode", choices=["hybrid", "vector", "bm25"], help="retriever to use (default: server setting)"
+    )
+    parser.add_argument(
+        "--rerank", action="store_true", help="re-rank with the cross-encoder (first call downloads the model)"
+    )
     parser.add_argument("--tag", help="name of this run (default: the mode)")
     args = parser.parse_args()
 
@@ -87,7 +101,11 @@ def main() -> None:
     rows = []
     for i, item in enumerate(qa, start=1):
         t0 = time.time()
-        chunks = post(f"{args.api}/retrieve", {"query": item["question"], "top_k": args.top_k, "mode": args.mode, "rerank": args.rerank or None}, 60)
+        chunks = post(
+            f"{args.api}/retrieve",
+            {"query": item["question"], "top_k": args.top_k, "mode": args.mode, "rerank": args.rerank or None},
+            60,
+        )
         rank = first_relevant_rank(chunks, item["keywords"])
         row = {
             "id": item.get("id", i),
@@ -99,7 +117,11 @@ def main() -> None:
 
         if args.answers:
             t0 = time.time()
-            res = post(f"{args.api}/search", {"query": item["question"], "top_k": 5, "mode": args.mode, "rerank": args.rerank or None}, 300)
+            res = post(
+                f"{args.api}/search",
+                {"query": item["question"], "top_k": 5, "mode": args.mode, "rerank": args.rerank or None},
+                300,
+            )
             answer = res["answer"]
             expected = item.get("answer_keywords") or item["keywords"]
             row["answer"] = answer
@@ -112,11 +134,7 @@ def main() -> None:
         print(f"[{i:>2}/{len(qa)}] {mark:<7}{extra}  {item['question']}")
 
     n = len(rows)
-    summary = {f"hit@{k}": round(sum(1 for r in rows if 0 < r["rank"] <= k) / n, 3) for k in KS if k <= args.top_k}
-    summary["mrr"] = round(sum(1 / r["rank"] for r in rows if r["rank"]) / n, 3)
-    if args.answers:
-        summary["answer_hit"] = round(sum(r["answer_hit"] for r in rows) / n, 3)
-
+    summary = summarize(rows, [k for k in KS if k <= args.top_k], args.answers)
     print("\n" + "  ".join(f"{k}={v}" for k, v in summary.items()))
 
     out_dir = HERE / "results"
@@ -124,7 +142,9 @@ def main() -> None:
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     out = out_dir / f"{stamp}_{args.tag}.json"
     out.write_text(
-        json.dumps({"tag": args.tag, "time": stamp, "n": n, "summary": summary, "rows": rows}, ensure_ascii=False, indent=2),
+        json.dumps(
+            {"tag": args.tag, "time": stamp, "n": n, "summary": summary, "rows": rows}, ensure_ascii=False, indent=2
+        ),
         encoding="utf-8",
     )
     print(f"saved {out}")

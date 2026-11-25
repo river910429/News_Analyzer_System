@@ -5,6 +5,7 @@ import logging
 import os
 import threading
 import uuid
+from contextlib import asynccontextmanager
 from typing import List, Literal, Optional
 
 import boto3
@@ -50,7 +51,14 @@ RERANK_BY_DEFAULT = os.getenv("RERANK_BY_DEFAULT", "false").lower() == "true"
 RERANK_CANDIDATES = int(os.getenv("RERANK_CANDIDATES", "20"))
 ETL_QUEUE = "etl_queue"
 
-app = FastAPI(title="Financial Report RAG API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ensure_schema()
+    ensure_bucket()
+    yield
+
+
+app = FastAPI(title="Financial Report RAG API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -114,7 +122,6 @@ class RetrieveRequest(BaseModel):
     )
 
 
-@app.on_event("startup")
 def ensure_schema() -> None:
     """Idempotent migration for databases created before page numbers existed."""
     conn = get_db_connection()
@@ -126,7 +133,6 @@ def ensure_schema() -> None:
         conn.close()
 
 
-@app.on_event("startup")
 def ensure_bucket() -> None:
     s3 = get_s3_client()
     try:
@@ -143,6 +149,27 @@ def ensure_bucket() -> None:
 # Endpoints below are plain `def` (not `async def`) on purpose: they use blocking
 # libraries (psycopg2, boto3, requests), and FastAPI runs `def` endpoints in a
 # thread pool so they don't block the event loop.
+
+
+@app.get("/health")
+def health():
+    """Liveness/readiness check used by docker-compose and monitoring."""
+    checks = {}
+    try:
+        conn = get_db_connection()
+        conn.close()
+        checks["db"] = "ok"
+    except Exception as e:
+        checks["db"] = f"error: {e.__class__.__name__}"
+    try:
+        redis_client.ping()
+        checks["redis"] = "ok"
+    except Exception as e:
+        checks["redis"] = f"error: {e.__class__.__name__}"
+    healthy = all(v == "ok" for v in checks.values())
+    if not healthy:
+        raise HTTPException(status_code=503, detail=checks)
+    return {"status": "ok", **checks}
 
 
 @app.post("/upload")
@@ -169,7 +196,7 @@ def upload_document(file: UploadFile = File(...)):
     except Exception as e:
         conn.rollback()
         logger.exception("Upload failed for %s", file.filename)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     finally:
         cursor.close()
         conn.close()
@@ -382,7 +409,7 @@ def search_and_generate(request: SearchRequest):
         return ChatResponse(answer=answer, sources=sources)
     except Exception as e:
         logger.exception("RAG search failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/retrieve", response_model=List[SearchResult])
@@ -392,4 +419,4 @@ def retrieve_only(request: RetrieveRequest):
         return retrieve(request.query, request.top_k, request.apply_threshold, request.mode, request.rerank)
     except Exception as e:
         logger.exception("Retrieve failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

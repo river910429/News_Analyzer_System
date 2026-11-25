@@ -1,5 +1,7 @@
 # Financial Report RAG Q&A
 
+[![CI](https://github.com/river910429/News_Analyzer_System/actions/workflows/ci.yml/badge.svg)](https://github.com/river910429/News_Analyzer_System/actions/workflows/ci.yml)
+
 A Retrieval-Augmented Generation (RAG) system for financial reports. Upload PDF reports, let the system index them in the background, then ask questions in natural language and get answers from a **local LLM** together with the source passages they were based on.
 
 財報問答系統：上傳財報 PDF，系統在背景建立向量索引，使用者以自然語言提問，由本地 LLM 根據檢索到的段落回答並附上來源。
@@ -85,6 +87,28 @@ Upload a PDF in the sidebar, wait until its status becomes `completed`, select i
 | `POST` | `/upload` | Upload a PDF (multipart `file`); queues it for indexing |
 | `GET` | `/documents` | List documents and their indexing status |
 | `POST` | `/search` | `{"query": "...", "top_k": 3}` → `{"answer": "...", "sources": [...]}` |
+
+## Evaluation
+
+Retrieval quality is measured on a 43-question set for the 2025 TSMC annual report
+(see [`eval/README.md`](eval/README.md)):
+
+| | Hit@1 | Hit@5 | MRR |
+|---|---|---|---|
+| Baseline: fixed 500-char chunks, vector search | 0.581 | 0.884 | 0.719 |
+| Page + sentence chunks, hybrid (vector + BM25, RRF) | 0.698 | **0.977** | 0.799 |
+
+## Testing
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .
+pytest
+```
+
+Unit tests cover chunking, BM25 / rank fusion, evaluation metrics, and that the API module
+imports. ML models are stubbed, so tests run in about a second without Docker.
+GitHub Actions runs lint + tests and builds every service image on each push.
 
 ## Configuration
 

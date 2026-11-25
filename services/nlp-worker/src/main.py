@@ -42,7 +42,7 @@ logger.info("Loading embedding model %s ...", EMBEDDING_MODEL)
 model = SentenceTransformer(EMBEDDING_MODEL)
 logger.info("Embedding model loaded")
 
-redis_client = redis.Redis(host=REDIS_HOST, port=6379, db=0)
+redis_client = redis.Redis(host=REDIS_HOST, port=6379, db=0, health_check_interval=30)
 
 
 def get_db_connection():
@@ -116,7 +116,7 @@ def process_document(conn, s3, doc_id: int, s3_key: str) -> None:
         execute_values(
             cursor,
             "INSERT INTO document_chunks (document_id, page_number, chunk_text, embedding) VALUES %s",
-            [(doc_id, page, text, vec.tolist()) for (page, text), vec in zip(chunks, embeddings)],
+            [(doc_id, page, text, vec.tolist()) for (page, text), vec in zip(chunks, embeddings, strict=True)],
         )
         cursor.execute("UPDATE documents SET status = 'completed' WHERE id = %s", (doc_id,))
     conn.commit()
@@ -147,8 +147,12 @@ def main() -> None:
     logger.info("Worker listening on queue '%s'", ETL_QUEUE)
     while True:
         try:
-            _, raw = redis_client.brpop(ETL_QUEUE, timeout=0)
-            handle_task(raw)
+            # Wake up every 5 s instead of blocking forever, so an idle connection
+            # never hits a socket timeout.
+            item = redis_client.brpop(ETL_QUEUE, timeout=5)
+            if item is None:
+                continue
+            handle_task(item[1])
         except Exception:
             # Keep the worker alive on unexpected errors (e.g. Redis/DB briefly down).
             logger.exception("Unexpected error in worker loop")

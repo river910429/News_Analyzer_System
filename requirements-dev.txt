@@ -1,0 +1,12 @@
+# Test/lint dependencies. ML models are stubbed in tests/conftest.py,
+# so torch and sentence-transformers are not needed here.
+pytest
+ruff
+numpy<2.0
+fastapi
+pydantic
+psycopg2-binary
+redis
+boto3
+requests
+python-multipart

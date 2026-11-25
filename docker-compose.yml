@@ -2,8 +2,11 @@ services:
   # 1. Redis (任務佇列)
   redis-queue:
     image: redis:alpine
-    ports:
-      - "${REDIS_PORT}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - rag-network
 
@@ -14,8 +17,11 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
-    ports:
-      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql # 自動建表腳本
@@ -49,10 +55,14 @@ services:
       - "host.docker.internal:host-gateway" # 讓 Linux 上的容器也能連到宿主機的 Ollama
     volumes:
       - ./services/api-gateway/src:/app/src
+      - hf_cache:/root/.cache/huggingface # 模型只下載一次，重建容器也不用重抓
     depends_on:
-      - redis-queue
-      - db
-      - minio
+      redis-queue:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_started
     networks:
       - rag-network
 
@@ -69,10 +79,14 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       - ./services/nlp-worker/src:/app/src
+      - hf_cache:/root/.cache/huggingface
     depends_on:
-      - redis-queue
-      - db
-      - minio
+      redis-queue:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_started
     networks:
       - rag-network
 
@@ -95,3 +109,4 @@ networks:
 volumes:
   postgres_data:
   minio_data:
+  hf_cache:
