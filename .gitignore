@@ -50,3 +50,5 @@ ehthumbs.db
 *.bak
 *.tmp
 test.txt
+
+*.patch
