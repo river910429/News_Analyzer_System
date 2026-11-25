@@ -10,19 +10,49 @@ import json
 import logging
 import operator
 import time
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger("api-gateway.agent")
 
-SYSTEM_PROMPT = """你是財報分析助理，可以使用工具查詢使用者上傳的財報。
+SYSTEM_PROMPT = """你是財報分析助理，透過工具查詢使用者上傳的財報來回答問題。
 
-規則：
-1. 回答前一定要先用 search_report 查資料，不要憑記憶回答；需要比較兩個數字時，分別查到兩個數字。
-2. 任何加減乘除、百分比、百分點差異，都必須用 calculator 計算，不要心算。
-3. 查到的片段不完整時，可以用 get_page 讀整頁內容。
-4. 數字照抄資料並註明單位；回答最後用「（來源：第 N 頁）」標註依據。
-5. 查不到就回答「根據目前的文件，無法得知此資訊」，不要編造。
+工作流程：
+1. 先用 search_report 查資料。問題牽涉兩個數字時（例如今年與去年、總數與部分），要確認兩個數字都查到；
+   沒查到就換關鍵字再查，或用 get_page 讀整頁。
+2. 只要能從查到的數字算出答案，就要計算，不可以因為文件沒有直接寫出答案就說查不到。
+3. 所有加減乘除、比例、百分點差異都必須呼叫 calculator，算式裡的數字不要有逗號。
+4. 財報表格一列的數字通常依序是「本年度、前一年度、增減金額、增減比例」，不要拿錯欄位。
+5. 回答要列出用到的數字與算式，數字照抄並註明單位，最後用「（來源：第 N 頁）」標註頁碼。
+6. 確實查了兩次以上仍找不到，才回答「根據目前的文件，無法得知此資訊」。
+
+範例：
+問題：毛利率比前一年增加幾個百分點？
+→ search_report("毛利率 前一年") 得到「毛利率為59.9%，前一年為56.1%」（第 7 頁）
+→ calculator("59.9 - 56.1") 得到 3.8
+→ 回答：毛利率由 56.1% 增加至 59.9%，增加 3.8 個百分點（來源：第 7 頁）。
+
 請用繁體中文簡潔回答。"""
+
+# Words that signal the question needs arithmetic.
+_CALC_HINTS = (
+    "增加", "減少", "相差", "差距", "提高", "下降", "占", "比例", "百分之", "百分點", "合計", "減去", "多少倍",
+)
+_REFUSAL = "無法得知"
+
+
+def critique(question: str, answer: str, steps: List[Dict[str, Any]]) -> Optional[str]:
+    """Harness-side checks on a draft answer. Returns feedback for the model, or None to accept.
+
+    Small local models often skip the calculator (and then mis-calculate) or give up after one
+    search. These checks catch both and ask the model to try again.
+    """
+    used = [s["tool"] for s in steps]
+    if _REFUSAL in answer and used.count("search_report") + used.count("get_page") < 2:
+        return "你只查了一次就說查不到。請換個關鍵字再用 search_report 查一次，或用 get_page 讀相關頁面，再回答。"
+    if any(h in question for h in _CALC_HINTS) and "calculator" not in used and _REFUSAL not in answer:
+        return "這題需要計算，但你還沒有使用 calculator。請把查到的數字用 calculator 算出結果，再根據計算結果回答。"
+    return None
+
 
 TOOL_SCHEMAS: List[Dict[str, Any]] = [
     {
@@ -128,14 +158,19 @@ def run_agent(
     chat_fn: ChatFn,
     tools: Dict[str, Callable[..., str]],
     max_steps: int = 6,
+    max_critiques: int = 2,
 ) -> Dict[str, Any]:
-    """Run the tool-calling loop. Returns {"answer", "steps", "stopped_reason", "elapsed_ms"}."""
+    """Run the tool-calling loop. Returns {"answer", "steps", "critiques", "stopped_reason", "elapsed_ms"}.
+
+    max_steps limits LLM calls; max_critiques limits how often a draft answer is sent back.
+    """
     started = time.perf_counter()
     messages: List[Dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": question},
     ]
     steps: List[Dict[str, Any]] = []
+    critiques: List[str] = []
     stopped_reason = "answered"
     answer = ""
 
@@ -146,7 +181,13 @@ def run_agent(
 
         if not tool_calls:
             answer = (reply.get("content") or "").strip()
-            break
+            feedback = critique(question, answer, steps) if len(critiques) < max_critiques else None
+            if feedback is None:
+                break
+            logger.info("agent critique: %s", feedback)
+            critiques.append(feedback)
+            messages.append({"role": "user", "content": feedback})
+            continue
 
         for call in tool_calls:
             fn = call.get("function", {})
@@ -171,6 +212,7 @@ def run_agent(
     return {
         "answer": answer or "無法生成回答",
         "steps": steps,
+        "critiques": critiques,
         "stopped_reason": stopped_reason,
         "elapsed_ms": round((time.perf_counter() - started) * 1000),
     }

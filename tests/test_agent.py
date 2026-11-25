@@ -77,3 +77,42 @@ def test_agent_stops_at_max_steps_and_answers_without_tools():
     assert result["stopped_reason"] == "max_steps"
     assert result["answer"] == "最終答案"
     assert calls[-1]["tools"] == []  # final call has no tools
+
+
+def test_critique_sends_back_answer_that_skipped_the_calculator():
+    chat, calls = scripted_chat(
+        [
+            tool_call("search_report", query="EPS"),
+            {"content": "增加了 20 元"},  # mental arithmetic, no calculator
+            tool_call("calculator", expression="66.25 - 45.25"),
+            {"content": "增加 21 元（來源：第 7 頁）"},
+        ]
+    )
+    tools = {"search_report": lambda query, top_k=5: "EPS 66.25 元，前一年 45.25 元", "calculator": calculator}
+    result = run_agent("每股盈餘比前一年增加了多少元？", chat, tools)
+
+    assert result["answer"].startswith("增加 21 元")
+    assert len(result["critiques"]) == 1 and "calculator" in result["critiques"][0]
+    assert calls[2]["messages"][-1]["role"] == "user"  # feedback was sent to the model
+
+
+def test_critique_asks_to_search_again_before_giving_up():
+    chat, _ = scripted_chat(
+        [
+            tool_call("search_report", query="2奈米"),
+            {"content": "根據目前的文件，無法得知此資訊"},
+            tool_call("search_report", query="A14 量產"),
+            {"content": "相差 3 年"},
+        ]
+    )
+    tools = {"search_report": lambda query, top_k=5: "片段", "calculator": calculator}
+    result = run_agent("2奈米與A14量產相隔幾年？", chat, tools)
+    assert [s["tool"] for s in result["steps"]] == ["search_report", "search_report"]
+    assert "換個關鍵字" in result["critiques"][0]
+
+
+def test_critiques_are_limited():
+    chat, _ = scripted_chat([{"content": "無法得知"}] * 3)
+    result = run_agent("差多少？", chat, {"calculator": calculator}, max_critiques=2)
+    assert len(result["critiques"]) == 2
+    assert result["answer"] == "無法得知"

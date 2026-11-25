@@ -58,5 +58,21 @@ python eval/run_eval.py --qa eval/agent_qa.jsonl --agent     # tool-calling agen
 
 | Run | answer_hit | avg tool calls | avg time (s) |
 |---|---|---|---|
-| RAG (/search) | | – | |
-| Agent (/agent) | | | |
+| RAG (/search), qwen2.5 7B | 0.583 | – | 1.3 |
+| Agent v1 (/agent), qwen2.5 7B | 0.417 | 1.08 | 1.7 |
+| Agent v2: new prompt + critique checks | | | |
+
+Scores were re-checked with `--rescore` after fixing the checker ("4.0元" now matches "4").
+
+**Agent v1 failure analysis** (7 wrong of 12):
+
+| Failure | Count | Example |
+|---|---|---|
+| Gave up although the numbers were in the retrieved text | 4 | 前十大客戶 78% and 最大客戶 19% retrieved, answered "無法得知" |
+| Mental arithmetic instead of the calculator | 1 | 900.8 × 35.9% instead of 1,224.2 − 900.8 |
+| Wrong table column / wrong passage, no second search | 2 | quarterly dividend (p39) instead of the annual one (p7) |
+
+Avg 1.08 tool calls: the model almost never searched twice or used the calculator.
+v2 changes: a step-by-step system prompt with a worked example, and harness-side
+**critique checks** that send a draft back once if it gives up after a single search or
+answers a calculation question without calling the calculator.

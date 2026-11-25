@@ -98,7 +98,7 @@ def test_agent_endpoint_returns_answer_and_steps(monkeypatch):
             {"content": "答案是 6"},
         ]
     )
-    monkeypatch.setattr(main, "ollama_chat", lambda messages, tools: next(replies))
+    monkeypatch.setattr(main, "ollama_chat", lambda messages, tools, model=None: next(replies))
 
     res = TestClient(main.app).post("/agent", json={"question": "2 乘 3？"})
     assert res.status_code == 200

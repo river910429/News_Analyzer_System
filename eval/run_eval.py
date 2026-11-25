@@ -56,14 +56,25 @@ def first_relevant_rank(chunks: list, keywords: list) -> int:
     return 0
 
 
-_NUMBER = re.compile(r"[\d.,]+%?")
+_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _numbers_in(text: str) -> list:
+    return [float(m.replace(",", "")) for m in _NUMBER.findall(text)]
 
 
 def _contains(text: str, expected: str) -> bool:
-    """Substring match; a bare number must not be part of a longer number ("3" does not match "113")."""
-    expected = normalize(expected)
-    if _NUMBER.fullmatch(expected):
-        return re.search(rf"(?<![\d.,]){re.escape(expected)}(?![\d]|[.,]\d)", text) is not None
+    """Text match, or for a bare number, numeric match.
+
+    A number matches when the answer contains the same value at the precision written in the
+    expected answer: "4" matches "4.0元" but not "113年"; "31.2" matches "31.16%".
+    """
+    expected = normalize(expected).rstrip("%")
+    if re.fullmatch(r"\d[\d,]*(?:\.\d+)?", expected):
+        value = float(expected.replace(",", ""))
+        decimals = len(expected.split(".")[1]) if "." in expected else 0
+        tolerance = 0.5 * 10**-decimals if decimals else 1e-9
+        return any(abs(n - value) <= tolerance + 1e-9 for n in _numbers_in(text))
     return expected in text
 
 
@@ -104,6 +115,18 @@ def load_qa(path: Path) -> list:
     return items
 
 
+def rescore(path: Path, qa: list) -> None:
+    """Apply the current answer checker to saved answers, e.g. after fixing the checker."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    expected = {item.get("id", i): item for i, item in enumerate(qa, start=1)}
+    for row in data["rows"]:
+        item = expected[row["id"]]
+        row["answer_hit"] = answer_matches(row["answer"], item.get("answer_keywords") or item["keywords"])
+    data["summary"] = summarize(data["rows"], KS, with_answers=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"{path.name}: " + "  ".join(f"{k}={v}" for k, v in data["summary"].items()))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--api", default="http://localhost:8000")
@@ -119,7 +142,13 @@ def main() -> None:
     )
     parser.add_argument("--timeout", type=float, default=600, help="seconds to wait for each request")
     parser.add_argument("--tag", help="name of this run (default: the mode)")
+    parser.add_argument("--model", help="Ollama model for /agent, e.g. qwen3:8b (default: server setting)")
+    parser.add_argument("--rescore", help="re-check the answers saved in a results JSON (no API calls)")
     args = parser.parse_args()
+
+    if args.rescore:
+        rescore(Path(args.rescore), load_qa(Path(args.qa)))
+        return
 
     check_answers = args.answers or args.agent
     default_tag = "agent" if args.agent else (args.mode or "default") + ("-rerank" if args.rerank else "")
@@ -147,7 +176,7 @@ def main() -> None:
         if check_answers:
             t0 = time.time()
             if args.agent:
-                res = post(f"{args.api}/agent", {"question": item["question"]}, args.timeout)
+                res = post(f"{args.api}/agent", {"question": item["question"], "model": args.model}, args.timeout)
                 row["steps"] = len(res["steps"])
                 row["tools"] = [s["tool"] for s in res["steps"]]
                 row["stopped_reason"] = res["stopped_reason"]

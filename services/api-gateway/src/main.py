@@ -536,12 +536,13 @@ def get_page(doc_id: int, page: int):
 
 
 # ----- Agent -----
-AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "6"))
+AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "8"))
 
 
 class AgentRequest(BaseModel):
     question: str = Field(..., min_length=1)
     max_steps: int = Field(AGENT_MAX_STEPS, ge=1, le=12)
+    model: Optional[str] = Field(None, description="Ollama 模型，預設用 OLLAMA_MODEL（方便比較不同模型）")
 
 
 class AgentStep(BaseModel):
@@ -553,13 +554,14 @@ class AgentStep(BaseModel):
 class AgentResponse(BaseModel):
     answer: str
     steps: List[AgentStep]
+    critiques: List[str]
     stopped_reason: str
     elapsed_ms: int
 
 
-def ollama_chat(messages, tools):
+def ollama_chat(messages, tools, model: Optional[str] = None):
     payload = {
-        "model": OLLAMA_MODEL,
+        "model": model or OLLAMA_MODEL,
         "messages": messages,
         "stream": False,
         "options": {"temperature": 0.1},
@@ -596,7 +598,10 @@ AGENT_TOOLS = {
 def agent(request: AgentRequest):
     """Answer with a tool-calling agent: it can search several times, read pages and calculate."""
     try:
-        return run_agent(request.question, ollama_chat, AGENT_TOOLS, max_steps=request.max_steps)
+        def chat(messages, tools):
+            return ollama_chat(messages, tools, request.model)
+
+        return run_agent(request.question, chat, AGENT_TOOLS, max_steps=request.max_steps)
     except Exception as e:
         logger.exception("Agent failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
