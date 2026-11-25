@@ -13,7 +13,7 @@ A Retrieval-Augmented Generation (RAG) system for financial reports. Upload PDF 
 - **PDF upload** with asynchronous indexing (status: `pending → processing → completed / failed`)
 - **Hybrid retrieval**: `BAAI/bge-m3` vectors in PostgreSQL + pgvector, fused with BM25 (CJK bigrams) by reciprocal rank fusion; page-aware, sentence-level chunking
 - **Grounded answers** from a local LLM (Ollama + `qwen2.5`) with page citations, **streamed** to the UI with Server-Sent Events (time to first token ≈ 0.5 s vs ≈ 1.9 s for the full answer)
-- **Tool-calling agent** (`/agent`): searches several times, reads full pages and uses a calculator for multi-step questions; every step is returned for inspection
+- **Tool-calling agent** (`/agent`): searches several times, reads full pages and uses a calculator for multi-step questions; every step is returned and shown in the UI (Agent mode toggle with an expandable trace)
 - **MCP server**: exposes `list_documents`, `search_report` and `get_page` to any MCP client (Claude Code, Claude Desktop, other agents)
 - **Evaluation harness**: 43 retrieval questions (Hit@k, MRR) and 12 multi-step questions comparing plain RAG with the agent
 - **No external API keys** — everything runs locally with Docker Compose
