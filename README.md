@@ -11,8 +11,11 @@ A Retrieval-Augmented Generation (RAG) system for financial reports. Upload PDF 
 ## Features
 
 - **PDF upload** with asynchronous indexing (status: `pending → processing → completed / failed`)
-- **Semantic search** over document chunks using `BAAI/bge-m3` embeddings (1024-dim, multilingual) in PostgreSQL + pgvector
-- **Grounded answers** from a local LLM (Ollama + `qwen2.5`), with cited source chunks and similarity scores
+- **Hybrid retrieval**: `BAAI/bge-m3` vectors in PostgreSQL + pgvector, fused with BM25 (CJK bigrams) by reciprocal rank fusion; page-aware, sentence-level chunking
+- **Grounded answers** from a local LLM (Ollama + `qwen2.5`) with page citations, **streamed** to the UI with Server-Sent Events (time to first token ≈ 0.5 s vs ≈ 1.9 s for the full answer)
+- **Tool-calling agent** (`/agent`): searches several times, reads full pages and uses a calculator for multi-step questions; every step is returned for inspection
+- **MCP server**: exposes `list_documents`, `search_report` and `get_page` to any MCP client (Claude Code, Claude Desktop, other agents)
+- **Evaluation harness**: 43 retrieval questions (Hit@k, MRR) and 12 multi-step questions comparing plain RAG with the agent
 - **No external API keys** — everything runs locally with Docker Compose
 
 ## Architecture
@@ -90,7 +93,21 @@ Upload a PDF in the sidebar, wait until its status becomes `completed`, select i
 | `POST` | `/search/stream` | Same input; answer streamed as Server-Sent Events (`sources`, `token`…, `done` with time-to-first-token) |
 | `POST` | `/retrieve` | Retrieval only (no LLM), used by the evaluation script |
 | `POST` | `/documents/{id}/reindex` | Re-run parsing, chunking and embedding for a document |
+| `POST` | `/agent` | `{"question": "..."}` → `{"answer", "steps": [{"tool", "arguments", "result"}], "stopped_reason"}` |
+| `GET` | `/documents/{id}/pages/{page}` | Full text of one page |
 | `GET` | `/health` | DB and Redis status |
+
+## MCP
+
+The `mcp-server` service (streamable HTTP, port 8001) wraps the API as MCP tools.
+Connect Claude Code to it:
+
+```bash
+claude mcp add --transport http financial-rag http://localhost:8001/mcp
+```
+
+Then ask, for example, "用 financial-rag 查台積電 114 年毛利率比前一年增加多少". Or inspect the tools with
+`npx @modelcontextprotocol/inspector` and the URL above.
 
 ## Evaluation
 

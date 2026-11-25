@@ -90,7 +90,21 @@ services:
     networks:
       - rag-network
 
-  # 6. Frontend
+  # 6. MCP Server (讓 Claude Code 等 MCP client 直接查詢財報)
+  mcp-server:
+    build: ./services/mcp-server
+    ports:
+      - "8001:8001"
+    environment:
+      - API_URL=http://api-gateway:8000
+    volumes:
+      - ./services/mcp-server/src:/app/src
+    depends_on:
+      - api-gateway
+    networks:
+      - rag-network
+
+  # 7. Frontend
   frontend:
     build: ./services/frontend
     ports:

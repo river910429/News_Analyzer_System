@@ -29,3 +29,4 @@ jobs:
           docker build -t rag-api ./services/api-gateway
           docker build -t rag-worker ./services/nlp-worker
           docker build -t rag-frontend ./services/frontend
+          docker build -t rag-mcp ./services/mcp-server

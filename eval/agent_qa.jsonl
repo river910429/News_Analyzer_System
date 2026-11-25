@@ -1,0 +1,14 @@
+// 需要多步驟（查兩個以上的數字、再計算）的題目，用來比較 /search（一般 RAG）和 /agent。
+// 事實皆取自 2025 TSMC Annual Report.C.pdf；answer_keywords 裡的 "a|b" 表示答出其中一種寫法即可。
+{"id": "multi-01", "question": "台積公司114年的毛利率比前一年增加了幾個百分點？", "answer_keywords": ["3.8"], "facts": "59.9% vs 56.1% (p7)"}
+{"id": "multi-02", "question": "台積公司114年的營業利益率比前一年增加了幾個百分點？", "answer_keywords": ["5.1"], "facts": "50.8% vs 45.7% (p7)"}
+{"id": "multi-03", "question": "台積公司114年每股盈餘比前一年增加了多少元？", "answer_keywords": ["21"], "facts": "66.25 vs 45.25 (p7)"}
+{"id": "multi-04", "question": "台積公司114年每股現金股利比前一年提高了多少元？", "answer_keywords": ["4"], "facts": "18.0 vs 14.0 (p7)"}
+{"id": "multi-05", "question": "台積公司前十大客戶的營收占比，從112年到114年增加了幾個百分點？", "answer_keywords": ["8"], "facts": "70% -> 78% (p71)"}
+{"id": "multi-06", "question": "台積公司第二大客戶的營收占比，114年比113年增加了幾個百分點？", "answer_keywords": ["5"], "facts": "12% -> 17% (p71)"}
+{"id": "multi-07", "question": "台積公司114年前十大客戶中，扣除最大客戶後，其餘九家合計約占營收多少百分比？", "answer_keywords": ["59"], "facts": "78% - 19% (p71)"}
+{"id": "multi-08", "question": "根據合併資產負債表，台積公司114年的負債總額約占資產總額的百分之幾？", "answer_keywords": ["31.2|31.16|31.1"], "facts": "2,472,228,595 / 7,933,023,878 (p64)"}
+{"id": "multi-09", "question": "根據合併資產負債表，台積公司114年資產總額減去負債總額是多少新台幣仟元？", "answer_keywords": ["5,460,795,283|5460795283"], "facts": "7,933,023,878 - 2,472,228,595 (p64)"}
+{"id": "multi-10", "question": "台積公司114年底的員工中，專業人員約占全球員工總數的百分之幾？", "answer_keywords": ["49.3|49.4|49.35"], "facts": "44,690 / 90,557 (p59)"}
+{"id": "multi-11", "question": "台積公司2奈米量產的年份與A14預計量產的年份相差幾年？", "answer_keywords": ["3"], "facts": "114年 vs 117年 (p6)"}
+{"id": "multi-12", "question": "以美元計算，台積公司114年合併營收比前一年增加了多少億美元？", "answer_keywords": ["323.4|323億4"], "facts": "1,224.2 - 900.8 (p7)"}

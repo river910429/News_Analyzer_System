@@ -1,0 +1,176 @@
+"""A small tool-calling agent loop (the "harness" around the LLM).
+
+The model decides which tool to call; this loop executes it, feeds the result back,
+and repeats until the model answers or the step budget runs out. Every step is
+recorded so the run can be inspected, evaluated and debugged.
+"""
+
+import ast
+import json
+import logging
+import operator
+import time
+from typing import Any, Callable, Dict, List
+
+logger = logging.getLogger("api-gateway.agent")
+
+SYSTEM_PROMPT = """你是財報分析助理，可以使用工具查詢使用者上傳的財報。
+
+規則：
+1. 回答前一定要先用 search_report 查資料，不要憑記憶回答；需要比較兩個數字時，分別查到兩個數字。
+2. 任何加減乘除、百分比、百分點差異，都必須用 calculator 計算，不要心算。
+3. 查到的片段不完整時，可以用 get_page 讀整頁內容。
+4. 數字照抄資料並註明單位；回答最後用「（來源：第 N 頁）」標註依據。
+5. 查不到就回答「根據目前的文件，無法得知此資訊」，不要編造。
+請用繁體中文簡潔回答。"""
+
+TOOL_SCHEMAS: List[Dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_report",
+            "description": "在已上傳的財報中搜尋與問題相關的段落（混合檢索）。回傳段落內容與頁碼。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "要搜尋的內容，例如「114年毛利率」"},
+                    "top_k": {"type": "integer", "description": "回傳幾段，預設 5"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_page",
+            "description": "讀取某份文件某一頁的完整文字，用於 search_report 的片段不夠完整時。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "integer", "description": "文件 id，search_report 的結果會附上"},
+                    "page": {"type": "integer", "description": "頁碼"},
+                },
+                "required": ["document_id", "page"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "calculator",
+            "description": "計算數學算式，支援 + - * / ** 和括號，例如「59.9 - 56.1」或「2472228595 / 7933023878」",
+            "parameters": {
+                "type": "object",
+                "properties": {"expression": {"type": "string", "description": "算式，數字不要有逗號"}},
+                "required": ["expression"],
+            },
+        },
+    },
+]
+
+_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Pow: operator.pow,
+    ast.Mod: operator.mod,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+
+def calculator(expression: str) -> str:
+    """Evaluate arithmetic safely (no eval): only numbers and + - * / ** % ( )."""
+
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.BinOp) and type(node.op) in _OPERATORS:
+            if isinstance(node.op, ast.Pow) and abs(_eval(node.right)) > 100:
+                raise ValueError("exponent too large")
+            return _OPERATORS[type(node.op)](_eval(node.left), _eval(node.right))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in _OPERATORS:
+            return _OPERATORS[type(node.op)](_eval(node.operand))
+        raise ValueError(f"unsupported expression: {ast.dump(node)[:60]}")
+
+    cleaned = expression.replace(",", "").replace("％", "%").replace("×", "*").replace("÷", "/")
+    try:
+        value = _eval(ast.parse(cleaned, mode="eval"))
+    except ZeroDivisionError:
+        return "錯誤：除以零"
+    except (SyntaxError, ValueError) as e:
+        return f"錯誤：無法計算 {expression!r}（{e}）"
+    if isinstance(value, float):
+        value = round(value, 6)
+        if value.is_integer():
+            value = int(value)
+    return str(value)
+
+
+# chat_fn(messages, tools) -> assistant message: {"content": str, "tool_calls": [...]} (Ollama format)
+ChatFn = Callable[[List[Dict[str, Any]], List[Dict[str, Any]]], Dict[str, Any]]
+
+
+def _parse_arguments(raw: Any) -> Dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        return json.loads(raw)
+    return {}
+
+
+def run_agent(
+    question: str,
+    chat_fn: ChatFn,
+    tools: Dict[str, Callable[..., str]],
+    max_steps: int = 6,
+) -> Dict[str, Any]:
+    """Run the tool-calling loop. Returns {"answer", "steps", "stopped_reason", "elapsed_ms"}."""
+    started = time.perf_counter()
+    messages: List[Dict[str, Any]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": question},
+    ]
+    steps: List[Dict[str, Any]] = []
+    stopped_reason = "answered"
+    answer = ""
+
+    for _ in range(max_steps):
+        reply = chat_fn(messages, TOOL_SCHEMAS)
+        tool_calls = reply.get("tool_calls") or []
+        messages.append({"role": "assistant", "content": reply.get("content", ""), "tool_calls": tool_calls})
+
+        if not tool_calls:
+            answer = (reply.get("content") or "").strip()
+            break
+
+        for call in tool_calls:
+            fn = call.get("function", {})
+            name = fn.get("name", "")
+            try:
+                args = _parse_arguments(fn.get("arguments"))
+                if name not in tools:
+                    raise KeyError(f"unknown tool {name!r}, available: {', '.join(tools)}")
+                result = tools[name](**args)
+            except Exception as e:  # report the error to the model so it can correct itself
+                args = fn.get("arguments")
+                result = f"工具錯誤：{e.__class__.__name__}: {e}"
+            logger.info("agent tool %s(%s) -> %d chars", name, args, len(result))
+            steps.append({"tool": name, "arguments": args, "result": result[:2000]})
+            messages.append({"role": "tool", "tool_name": name, "content": result})
+    else:
+        # Step budget used up: ask for a final answer from what was gathered, without tools.
+        stopped_reason = "max_steps"
+        messages.append({"role": "user", "content": "請根據目前查到的資料直接回答，不要再呼叫工具。"})
+        answer = (chat_fn(messages, []).get("content") or "").strip()
+
+    return {
+        "answer": answer or "無法生成回答",
+        "steps": steps,
+        "stopped_reason": stopped_reason,
+        "elapsed_ms": round((time.perf_counter() - started) * 1000),
+    }

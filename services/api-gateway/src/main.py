@@ -21,6 +21,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
+from .agent import calculator as calculator_tool
+from .agent import run_agent
 from .lexical import LexicalIndex, reciprocal_rank_fusion
 
 logging.basicConfig(
@@ -104,6 +106,7 @@ class SearchRequest(BaseModel):
 
 class SearchResult(BaseModel):
     filename: str
+    document_id: Optional[int] = None
     page: Optional[int] = None
     content: str
     similarity_score: float  # cosine similarity between question and chunk
@@ -326,7 +329,7 @@ def retrieve(
             cursor.execute(
                 """
                 SELECT c.id, d.filename, c.page_number, c.chunk_text,
-                       1 - (c.embedding <=> %s::vector) AS similarity
+                       1 - (c.embedding <=> %s::vector) AS similarity, c.document_id
                 FROM document_chunks c JOIN documents d ON c.document_id = d.id
                 WHERE c.id = ANY(%s)
                 """,
@@ -344,11 +347,17 @@ def retrieve(
     bm25_top = set(bm25_ids[:top_k])
     results = []
     for chunk_id in ranked_ids:
-        _, filename, page, text, similarity = rows[chunk_id]
+        _, filename, page, text, similarity, document_id = rows[chunk_id]
         if apply_threshold and similarity <= SIMILARITY_THRESHOLD and chunk_id not in bm25_top:
             continue
         results.append(
-            SearchResult(filename=filename, page=page, content=text, similarity_score=round(similarity, 4))
+            SearchResult(
+                filename=filename,
+                document_id=document_id,
+                page=page,
+                content=text,
+                similarity_score=round(similarity, 4),
+            )
         )
     return results
 
@@ -487,6 +496,110 @@ def search_stream(request: SearchRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def merge_chunks(chunks: List[str]) -> str:
+    """Join consecutive chunks of one page, dropping the lines repeated by the chunk overlap."""
+    lines: List[str] = []
+    for chunk in chunks:
+        chunk_lines = chunk.split("\n")
+        overlap = 0
+        for n in range(min(len(chunk_lines), len(lines)), 0, -1):
+            if lines[-n:] == chunk_lines[:n]:
+                overlap = n
+                break
+        lines.extend(chunk_lines[overlap:])
+    return "\n".join(lines)
+
+
+def page_text(doc_id: int, page: int) -> str:
+    """Rebuild a page's text from its chunks."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT chunk_text FROM document_chunks WHERE document_id = %s AND page_number = %s ORDER BY id",
+                (doc_id, page),
+            )
+            chunks = [r[0] for r in cursor.fetchall()]
+    finally:
+        conn.close()
+    return merge_chunks(chunks)
+
+
+@app.get("/documents/{doc_id}/pages/{page}")
+def get_page(doc_id: int, page: int):
+    text = page_text(doc_id, page)
+    if not text:
+        raise HTTPException(status_code=404, detail="Page not found (or document not indexed)")
+    return {"document_id": doc_id, "page": page, "text": text}
+
+
+# ----- Agent -----
+AGENT_MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "6"))
+
+
+class AgentRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    max_steps: int = Field(AGENT_MAX_STEPS, ge=1, le=12)
+
+
+class AgentStep(BaseModel):
+    tool: str
+    arguments: object
+    result: str
+
+
+class AgentResponse(BaseModel):
+    answer: str
+    steps: List[AgentStep]
+    stopped_reason: str
+    elapsed_ms: int
+
+
+def ollama_chat(messages, tools):
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": messages,
+        "stream": False,
+        "options": {"temperature": 0.1},
+    }
+    if tools:
+        payload["tools"] = tools
+    response = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=OLLAMA_TIMEOUT)
+    response.raise_for_status()
+    return response.json().get("message", {})
+
+
+def search_report_tool(query: str, top_k: int = 5) -> str:
+    results = retrieve(query, min(max(int(top_k), 1), 10))
+    if not results:
+        return "沒有找到相關段落。"
+    return "\n\n".join(
+        f"[{i}] 文件 {r.document_id}（{r.filename}）第 {r.page} 頁\n{r.content}"
+        for i, r in enumerate(results, start=1)
+    )
+
+
+def get_page_tool(document_id: int, page: int) -> str:
+    return page_text(int(document_id), int(page)) or f"文件 {document_id} 第 {page} 頁沒有內容。"
+
+
+AGENT_TOOLS = {
+    "search_report": search_report_tool,
+    "get_page": get_page_tool,
+    "calculator": calculator_tool,
+}
+
+
+@app.post("/agent", response_model=AgentResponse)
+def agent(request: AgentRequest):
+    """Answer with a tool-calling agent: it can search several times, read pages and calculate."""
+    try:
+        return run_agent(request.question, ollama_chat, AGENT_TOOLS, max_steps=request.max_steps)
+    except Exception as e:
+        logger.exception("Agent failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/retrieve", response_model=List[SearchResult])

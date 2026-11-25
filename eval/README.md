@@ -44,3 +44,19 @@ python eval/run_eval.py --mode vector
 python eval/run_eval.py --mode bm25
 python eval/run_eval.py --mode hybrid
 ```
+
+## Multi-step questions: RAG vs agent
+
+`eval/agent_qa.jsonl` has 12 questions that need two facts and a calculation
+(e.g. "毛利率比前一年增加幾個百分點？"). Answers are checked against the expected value;
+a bare number must match on its own (so "3" does not match "113").
+
+```bash
+python eval/run_eval.py --qa eval/agent_qa.jsonl --answers   # plain RAG (/search)
+python eval/run_eval.py --qa eval/agent_qa.jsonl --agent     # tool-calling agent (/agent)
+```
+
+| Run | answer_hit | avg tool calls | avg time (s) |
+|---|---|---|---|
+| RAG (/search) | | – | |
+| Agent (/agent) | | | |

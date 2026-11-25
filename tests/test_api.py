@@ -78,3 +78,30 @@ def test_generate_stream_parses_ollama_ndjson(monkeypatch):
 
     monkeypatch.setattr(main.requests, "post", lambda *a, **k: FakeResponse())
     assert list(main.generate_stream("prompt")) == ["毛利", "率"]
+
+
+def test_merge_chunks_removes_overlap_lines():
+    from src.main import merge_chunks
+
+    chunks = ["第一行\n第二行\n第三行", "第二行\n第三行\n第四行", "第五行"]
+    assert merge_chunks(chunks) == "第一行\n第二行\n第三行\n第四行\n第五行"
+
+
+def test_agent_endpoint_returns_answer_and_steps(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from src import main
+
+    replies = iter(
+        [
+            {"content": "", "tool_calls": [{"function": {"name": "calculator", "arguments": {"expression": "2*3"}}}]},
+            {"content": "答案是 6"},
+        ]
+    )
+    monkeypatch.setattr(main, "ollama_chat", lambda messages, tools: next(replies))
+
+    res = TestClient(main.app).post("/agent", json={"question": "2 乘 3？"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["answer"] == "答案是 6"
+    assert body["steps"][0] == {"tool": "calculator", "arguments": {"expression": "2*3"}, "result": "6"}
