@@ -1,0 +1,689 @@
+From c54abfda5789dd5fab0cdcc10a6cd0529bd34b1b Mon Sep 17 00:00:00 2001
+From: Rivers Wu <river910429@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 21:33:19 +0800
+Subject: [PATCH] Hybrid retrieval (vector + BM25, RRF), page-aware chunking,
+ page citations
+
+- worker: clean CJK spacing from pypdf, sentence/line-aware chunks that keep
+  page numbers, idempotent re-indexing
+- api: BM25 with CJK bigrams fused with pgvector results, /documents/{id}/reindex,
+  page numbers in sources and prompt, stricter prompt for financial tables
+- eval: --mode flag to compare retrievers, guard against an empty QA set
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_011hy1QAvFPFWDUKLCyMypAd
+---
+ .env.example                        |   2 +-
+ eval/README.md                      |  19 +++-
+ eval/run_eval.py                    |  12 ++-
+ init.sql                            |   5 +-
+ services/api-gateway/src/lexical.py |  95 +++++++++++++++++
+ services/api-gateway/src/main.py    | 159 +++++++++++++++++++++++-----
+ services/frontend/src/App.jsx       |   4 +-
+ services/nlp-worker/src/chunking.py |  58 ++++++++++
+ services/nlp-worker/src/main.py     |  60 ++++++-----
+ 9 files changed, 350 insertions(+), 64 deletions(-)
+ create mode 100644 services/api-gateway/src/lexical.py
+ create mode 100644 services/nlp-worker/src/chunking.py
+
+diff --git a/.env.example b/.env.example
+index cb47543..bb55b21 100644
+--- a/.env.example
++++ b/.env.example
+@@ -25,7 +25,7 @@ LOG_LEVEL=INFO
+ EMBEDDING_MODEL=BAAI/bge-m3
+ SIMILARITY_THRESHOLD=0.4
+ CHUNK_SIZE=500
+-CHUNK_OVERLAP=50
++CHUNK_OVERLAP=100
+ 
+ # ----- LLM (Ollama running on the host machine) -----
+ OLLAMA_URL=http://host.docker.internal:11434
+diff --git a/eval/README.md b/eval/README.md
+index 7f369db..12eecce 100644
+--- a/eval/README.md
++++ b/eval/README.md
+@@ -24,6 +24,19 @@ Results are saved to `eval/results/<time>_<tag>.json`. Re-run with a new `--tag`
+ 
+ ## Results
+ 
+-| Run | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR | answer_hit |
+-|---|---|---|---|---|---|---|
+-| baseline (fixed 500-char chunks, vector only) | | | | | | |
++QA set: 43 questions on *2025 TSMC Annual Report* (`eval/qa.jsonl`), top-10 retrieval.
++
++| Run | Chunking | Retriever | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR |
++|---|---|---|---|---|---|---|---|
++| baseline | fixed 500 chars | vector (bge-m3) | 0.581 | 0.814 | 0.884 | 0.977 | 0.719 |
++| page + sentence chunks | 500 chars, per page | BM25 (offline check) | 0.791 | 0.953 | 0.953 | 1.000 | 0.872 |
++| page + sentence chunks | 500 chars, per page | vector | | | | | |
++| page + sentence chunks | 500 chars, per page | hybrid (RRF) | | | | | |
++
++Compare retrievers on the running system:
++
++```bash
++python eval/run_eval.py --mode vector
++python eval/run_eval.py --mode bm25
++python eval/run_eval.py --mode hybrid
++```
+diff --git a/eval/run_eval.py b/eval/run_eval.py
+index d5fffde..0385dc7 100644
+--- a/eval/run_eval.py
++++ b/eval/run_eval.py
+@@ -13,7 +13,7 @@ Answer check (optional, --answers, calls the LLM so it is slow on CPU):
+ Only the Python standard library is used, so it runs on the host:
+     python eval/run_eval.py                       # retrieval only
+     python eval/run_eval.py --answers             # + LLM answer check
+-    python eval/run_eval.py --tag fixed-500       # label this run in the report
++    python eval/run_eval.py --mode vector         # compare retrievers: vector | bm25 | hybrid
+ """
+ 
+ import argparse
+@@ -73,16 +73,20 @@ def main() -> None:
+     parser.add_argument("--qa", default=str(HERE / "qa.jsonl"))
+     parser.add_argument("--top-k", type=int, default=max(KS))
+     parser.add_argument("--answers", action="store_true", help="also call /search and check the LLM answers")
+-    parser.add_argument("--tag", default="baseline", help="name of this run, e.g. the chunking strategy")
++    parser.add_argument("--mode", choices=["hybrid", "vector", "bm25"], help="retriever to use (default: server setting)")
++    parser.add_argument("--tag", help="name of this run (default: the mode)")
+     args = parser.parse_args()
+ 
++    args.tag = args.tag or args.mode or "default"
+     qa = load_qa(Path(args.qa))
++    if not qa:
++        sys.exit(f"No questions found in {args.qa} (only comments?)")
+     print(f"{len(qa)} questions, tag={args.tag}\n")
+ 
+     rows = []
+     for i, item in enumerate(qa, start=1):
+         t0 = time.time()
+-        chunks = post(f"{args.api}/retrieve", {"query": item["question"], "top_k": args.top_k}, 60)
++        chunks = post(f"{args.api}/retrieve", {"query": item["question"], "top_k": args.top_k, "mode": args.mode}, 60)
+         rank = first_relevant_rank(chunks, item["keywords"])
+         row = {
+             "id": item.get("id", i),
+@@ -94,7 +98,7 @@ def main() -> None:
+ 
+         if args.answers:
+             t0 = time.time()
+-            res = post(f"{args.api}/search", {"query": item["question"], "top_k": 3}, 300)
++            res = post(f"{args.api}/search", {"query": item["question"], "top_k": 5, "mode": args.mode}, 300)
+             answer = res["answer"]
+             expected = item.get("answer_keywords") or item["keywords"]
+             row["answer"] = answer
+diff --git a/init.sql b/init.sql
+index dbd33a1..f54b173 100644
+--- a/init.sql
++++ b/init.sql
+@@ -13,8 +13,9 @@ CREATE TABLE IF NOT EXISTS documents (
+ -- 建立向量表 (Chunks)
+ CREATE TABLE IF NOT EXISTS document_chunks (
+     id SERIAL PRIMARY KEY,
+-    document_id INTEGER REFERENCES documents(id),
++    document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
+     chunk_text TEXT NOT NULL,
+     -- ⚠️ 關鍵修改：從 384 改成 1024 維
+-    embedding vector(1024) 
++    embedding vector(1024),
++    page_number INTEGER
+ );
+\ No newline at end of file
+diff --git a/services/api-gateway/src/lexical.py b/services/api-gateway/src/lexical.py
+new file mode 100644
+index 0000000..d09139f
+--- /dev/null
++++ b/services/api-gateway/src/lexical.py
+@@ -0,0 +1,95 @@
++"""Keyword (BM25) search over chunks, tuned for Traditional Chinese financial text.
++
++Chinese has no spaces, so text is tokenized into character bigrams; numbers and
++ASCII words are kept whole (with a comma-free copy, so 3,809 also matches 3809).
++The index lives in memory and is rebuilt when the set of chunks changes, which is
++fine for a few thousand chunks; a larger corpus would need a search engine.
++"""
++
++import math
++import re
++import threading
++from collections import Counter
++from typing import Callable, Dict, List, Sequence, Tuple
++
++_CJK = r"㐀-鿿豈-﫿　-〿＀-￯"
++_SPACE_BETWEEN_CJK = re.compile(rf"(?<=[{_CJK}])[ \t]+(?=[{_CJK}])")
++_ASCII_TOKEN = re.compile(r"[0-9A-Za-z][0-9A-Za-z.,%]*")
++_CJK_RUN = re.compile(r"[㐀-鿿豈-﫿]+")
++
++
++def tokenize(text: str) -> List[str]:
++    text = _SPACE_BETWEEN_CJK.sub("", text).lower()
++    tokens = [t.rstrip(".,") for t in _ASCII_TOKEN.findall(text)]
++    tokens += [t.replace(",", "") for t in tokens if "," in t]
++    for run in _CJK_RUN.findall(text):
++        if len(run) == 1:
++            tokens.append(run)
++        tokens += [run[i:i + 2] for i in range(len(run) - 1)]
++    return tokens
++
++
++class BM25:
++    def __init__(self, docs: Sequence[str], k1: float = 1.5, b: float = 0.75):
++        self.k1, self.b = k1, b
++        self.tfs = [Counter(tokenize(d)) for d in docs]
++        self.lengths = [sum(tf.values()) for tf in self.tfs]
++        self.avg_len = sum(self.lengths) / max(len(self.lengths), 1)
++        df: Counter = Counter()
++        for tf in self.tfs:
++            df.update(tf.keys())
++        n = len(docs)
++        self.idf = {t: math.log(1 + (n - f + 0.5) / (f + 0.5)) for t, f in df.items()}
++
++    def scores(self, query: str) -> List[float]:
++        terms = set(tokenize(query))
++        out = []
++        for tf, length in zip(self.tfs, self.lengths):
++            score = 0.0
++            norm = self.k1 * (1 - self.b + self.b * length / self.avg_len)
++            for t in terms:
++                f = tf.get(t)
++                if f:
++                    score += self.idf[t] * f * (self.k1 + 1) / (f + norm)
++            out.append(score)
++        return out
++
++
++class LexicalIndex:
++    """BM25 over all chunks, rebuilt lazily when the chunk table changes."""
++
++    def __init__(self, load_signature: Callable[[], Tuple], load_chunks: Callable[[], List[Tuple[int, str]]]):
++        self._load_signature = load_signature
++        self._load_chunks = load_chunks
++        self._lock = threading.Lock()
++        self._signature: Tuple = ()
++        self._ids: List[int] = []
++        self._bm25: BM25 = BM25([])
++
++    def _refresh(self) -> None:
++        signature = self._load_signature()
++        with self._lock:
++            if signature == self._signature:
++                return
++            rows = self._load_chunks()
++            self._ids = [r[0] for r in rows]
++            self._bm25 = BM25([r[1] for r in rows])
++            self._signature = signature
++
++    def search(self, query: str, limit: int) -> List[int]:
++        """Chunk ids ordered by BM25 score (only chunks sharing at least one term)."""
++        self._refresh()
++        with self._lock:
++            scores = self._bm25.scores(query)
++            ids = self._ids
++        ranked = sorted(range(len(ids)), key=lambda i: -scores[i])
++        return [ids[i] for i in ranked[:limit] if scores[i] > 0]
++
++
++def reciprocal_rank_fusion(rankings: Sequence[Sequence[int]], k: int = 60) -> Dict[int, float]:
++    """Combine several ranked id lists: score = sum of 1 / (k + rank)."""
++    fused: Dict[int, float] = {}
++    for ranking in rankings:
++        for rank, item in enumerate(ranking, start=1):
++            fused[item] = fused.get(item, 0.0) + 1.0 / (k + rank)
++    return fused
+diff --git a/services/api-gateway/src/main.py b/services/api-gateway/src/main.py
+index b6446a0..a47a662 100644
+--- a/services/api-gateway/src/main.py
++++ b/services/api-gateway/src/main.py
+@@ -4,7 +4,7 @@ import json
+ import logging
+ import os
+ import uuid
+-from typing import List
++from typing import List, Literal, Optional
+ 
+ import boto3
+ import psycopg2
+@@ -17,6 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
+ from pydantic import BaseModel, Field
+ from sentence_transformers import SentenceTransformer
+ 
++from lexical import LexicalIndex, reciprocal_rank_fusion
++
+ logging.basicConfig(
+     level=os.getenv("LOG_LEVEL", "INFO"),
+     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+@@ -39,6 +41,8 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://host.docker.internal:11434")
+ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5")
+ OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "120"))
+ SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.4"))
++RETRIEVAL_MODE = os.getenv("RETRIEVAL_MODE", "hybrid")  # hybrid | vector | bm25
++CANDIDATES = int(os.getenv("RETRIEVAL_CANDIDATES", "30"))  # per retriever, before fusion
+ ETL_QUEUE = "etl_queue"
+ 
+ app = FastAPI(title="Financial Report RAG API")
+@@ -73,15 +77,20 @@ def get_s3_client():
+     )
+ 
+ 
++Mode = Literal["hybrid", "vector", "bm25"]
++
++
+ class SearchRequest(BaseModel):
+     query: str = Field(..., min_length=1, description="使用者的搜尋問題")
+-    top_k: int = Field(3, ge=1, le=10, description="要回傳幾筆最相關的結果")
++    top_k: int = Field(5, ge=1, le=10, description="要回傳幾筆最相關的結果")
++    mode: Optional[Mode] = Field(None, description="檢索方式，預設用 RETRIEVAL_MODE")
+ 
+ 
+ class SearchResult(BaseModel):
+     filename: str
++    page: Optional[int] = None
+     content: str
+-    similarity_score: float
++    similarity_score: float  # cosine similarity between question and chunk
+ 
+ 
+ class ChatResponse(BaseModel):
+@@ -92,11 +101,24 @@ class ChatResponse(BaseModel):
+ class RetrieveRequest(BaseModel):
+     query: str = Field(..., min_length=1)
+     top_k: int = Field(10, ge=1, le=50)
++    mode: Optional[Mode] = None
+     apply_threshold: bool = Field(
+         False, description="評估時預設不套用相似度門檻，才能看到完整的排序"
+     )
+ 
+ 
++@app.on_event("startup")
++def ensure_schema() -> None:
++    """Idempotent migration for databases created before page numbers existed."""
++    conn = get_db_connection()
++    try:
++        with conn.cursor() as cursor:
++            cursor.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS page_number INTEGER")
++        conn.commit()
++    finally:
++        conn.close()
++
++
+ @app.on_event("startup")
+ def ensure_bucket() -> None:
+     s3 = get_s3_client()
+@@ -164,40 +186,124 @@ def list_documents():
+     ]
+ 
+ 
+-def retrieve(query: str, top_k: int, apply_threshold: bool = True) -> List[SearchResult]:
+-    """Return the top_k most similar chunks (optionally only those above SIMILARITY_THRESHOLD)."""
+-    query_vector = model.encode(query).tolist()
+-    sql = """
+-        SELECT d.filename, c.chunk_text, (c.embedding <=> %s::vector) AS distance
+-        FROM document_chunks c
+-        JOIN documents d ON c.document_id = d.id
+-        ORDER BY distance ASC
+-        LIMIT %s;
++@app.post("/documents/{doc_id}/reindex")
++def reindex_document(doc_id: int):
++    """Re-run parsing/chunking/embedding for an uploaded document (e.g. after changing the chunker)."""
++    conn = get_db_connection()
++    try:
++        with conn.cursor() as cursor:
++            cursor.execute(
++                "UPDATE documents SET status = 'pending' WHERE id = %s RETURNING s3_key, filename",
++                (doc_id,),
++            )
++            row = cursor.fetchone()
++        if row is None:
++            raise HTTPException(status_code=404, detail="Document not found")
++        conn.commit()
++    finally:
++        conn.close()
++
++    redis_client.lpush(ETL_QUEUE, json.dumps({"doc_id": doc_id, "s3_key": row[0], "filename": row[1]}))
++    logger.info("Queued re-index of document %s", doc_id)
++    return {"status": "queued", "doc_id": doc_id}
++
++
++def _chunk_signature():
++    conn = get_db_connection()
++    try:
++        with conn.cursor() as cursor:
++            cursor.execute("SELECT count(*), coalesce(max(id), 0) FROM document_chunks")
++            return cursor.fetchone()
++    finally:
++        conn.close()
++
++
++def _all_chunks():
++    conn = get_db_connection()
++    try:
++        with conn.cursor() as cursor:
++            cursor.execute("SELECT id, chunk_text FROM document_chunks ORDER BY id")
++            return cursor.fetchall()
++    finally:
++        conn.close()
++
++
++lexical_index = LexicalIndex(_chunk_signature, _all_chunks)
++
++
++def retrieve(
++    query: str, top_k: int, apply_threshold: bool = True, mode: Optional[str] = None
++) -> List[SearchResult]:
++    """Hybrid retrieval: vector search + BM25, combined with reciprocal rank fusion.
++
++    mode="vector" or "bm25" uses a single retriever (useful for evaluation).
++    With apply_threshold, a chunk is kept if its cosine similarity passes the
++    threshold or BM25 ranked it within top_k (exact keyword matches such as
++    numbers often have modest cosine similarity).
+     """
++    mode = mode or RETRIEVAL_MODE
++    query_vector = str(model.encode(query, normalize_embeddings=True).tolist())
++    n_candidates = max(CANDIDATES, top_k)
++
+     conn = get_db_connection()
+     try:
+         with conn.cursor() as cursor:
+-            cursor.execute(sql, (str(query_vector), top_k))
+-            rows = cursor.fetchall()
++            vector_ids: List[int] = []
++            if mode in ("hybrid", "vector"):
++                cursor.execute(
++                    "SELECT id FROM document_chunks ORDER BY embedding <=> %s::vector LIMIT %s",
++                    (query_vector, n_candidates),
++                )
++                vector_ids = [r[0] for r in cursor.fetchall()]
++            bm25_ids = lexical_index.search(query, n_candidates) if mode in ("hybrid", "bm25") else []
++
++            rankings = [r for r in (vector_ids, bm25_ids) if r]
++            fused = reciprocal_rank_fusion(rankings)
++            ranked_ids = sorted(fused, key=lambda i: -fused[i])[:top_k]
++            if not ranked_ids:
++                return []
++
++            cursor.execute(
++                """
++                SELECT c.id, d.filename, c.page_number, c.chunk_text,
++                       1 - (c.embedding <=> %s::vector) AS similarity
++                FROM document_chunks c JOIN documents d ON c.document_id = d.id
++                WHERE c.id = ANY(%s)
++                """,
++                (query_vector, ranked_ids),
++            )
++            rows = {r[0]: r for r in cursor.fetchall()}
+     finally:
+         conn.close()
+ 
++    bm25_top = set(bm25_ids[:top_k])
+     results = []
+-    for filename, chunk_text, distance in rows:
+-        score = 1 - distance  # cosine distance -> cosine similarity
+-        if not apply_threshold or score > SIMILARITY_THRESHOLD:
+-            results.append(
+-                SearchResult(filename=filename, content=chunk_text, similarity_score=round(score, 4))
+-            )
++    for chunk_id in ranked_ids:
++        _, filename, page, text, similarity = rows[chunk_id]
++        if apply_threshold and similarity <= SIMILARITY_THRESHOLD and chunk_id not in bm25_top:
++            continue
++        results.append(
++            SearchResult(filename=filename, page=page, content=text, similarity_score=round(similarity, 4))
++        )
+     return results
+ 
+ 
+ def build_prompt(query: str, sources: List[SearchResult]) -> str:
+     # Numbering follows the `sources` list, so [參考資料 N] matches the N-th source shown in the UI.
+-    context = "\n\n".join(f"[參考資料 {i}]\n{s.content}" for i, s in enumerate(sources, start=1))
++    def header(i: int, s: SearchResult) -> str:
++        page = f"，第 {s.page} 頁" if s.page else ""
++        return f"[參考資料 {i}]（{s.filename}{page}）"
++
++    context = "\n\n".join(f"{header(i, s)}\n{s.content}" for i, s in enumerate(sources, start=1))
+     return f"""
+ 你是一位專業的財報與企業分析師。請「嚴格」根據以下提供的[參考資料]來回答使用者的問題。
+ 如果參考資料中沒有提到，請回答「根據目前的文件，無法得知此資訊」，絕不能自己編造答案。
++
++注意事項：
++1. 數字必須逐字照抄參考資料，不要自行換算或四捨五入，並註明單位（例如新台幣仟元）。
++2. 財報比較表中，一列數字的欄位通常依序為「本年度、前一年度、增減金額、增減比例」，請勿混淆。
++3. 同一份年報可能同時有「合併」與「個體」財務報表，若問題沒有指定，以合併報表為主並說明。
++4. 回答時以 [參考資料 N] 標註依據。
+ 請用繁體中文，語氣專業、簡潔地回答。
+ 
+ [參考資料]
+@@ -213,7 +319,12 @@ def build_prompt(query: str, sources: List[SearchResult]) -> str:
+ def generate(prompt: str) -> str:
+     response = requests.post(
+         f"{OLLAMA_URL}/api/generate",
+-        json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
++        json={
++            "model": OLLAMA_MODEL,
++            "prompt": prompt,
++            "stream": False,
++            "options": {"temperature": 0.1},  # factual Q&A: keep answers deterministic
++        },
+         timeout=OLLAMA_TIMEOUT,
+     )
+     response.raise_for_status()
+@@ -224,7 +335,7 @@ def generate(prompt: str) -> str:
+ def search_and_generate(request: SearchRequest):
+     """RAG: retrieve relevant chunks from pgvector, then ask Ollama to answer from them."""
+     try:
+-        sources = retrieve(request.query, request.top_k)
++        sources = retrieve(request.query, request.top_k, mode=request.mode)
+         if not sources:
+             return ChatResponse(
+                 answer="抱歉，根據目前上傳的文件，我找不到與您問題相關的資訊。", sources=[]
+@@ -242,7 +353,7 @@ def search_and_generate(request: SearchRequest):
+ def retrieve_only(request: RetrieveRequest):
+     """Retrieval without calling the LLM. Used by eval/run_eval.py to measure Hit@k / MRR."""
+     try:
+-        return retrieve(request.query, request.top_k, request.apply_threshold)
++        return retrieve(request.query, request.top_k, request.apply_threshold, request.mode)
+     except Exception as e:
+         logger.exception("Retrieve failed")
+         raise HTTPException(status_code=500, detail=str(e))
+diff --git a/services/frontend/src/App.jsx b/services/frontend/src/App.jsx
+index b8206fa..95bf442 100644
+--- a/services/frontend/src/App.jsx
++++ b/services/frontend/src/App.jsx
+@@ -65,7 +65,7 @@ export default function Dashboard() {
+         try {
+             const res = await axios.post(`${API_URL}/search`, {
+                 query: userQ,
+-                top_k: 3
++                top_k: 5
+             });
+ 
+             // 解構後端傳來的 ChatResponse
+@@ -76,7 +76,7 @@ export default function Dashboard() {
+             // 如果有參考來源，把它們折疊或附在下方
+             if (sources && sources.length > 0) {
+                 const sourceText = sources.map((doc, idx) =>
+-                    `[${idx + 1}] ${doc.filename} (相似度: ${(doc.similarity_score * 100).toFixed(1)}%)`
++                    `[${idx + 1}] ${doc.filename}${doc.page ? ` 第 ${doc.page} 頁` : ''} (相似度: ${(doc.similarity_score * 100).toFixed(1)}%)`
+                 ).join('\n');
+ 
+                 aiResponse += `\n\n---\n📑 參考來源：\n${sourceText}`;
+diff --git a/services/nlp-worker/src/chunking.py b/services/nlp-worker/src/chunking.py
+new file mode 100644
+index 0000000..7108495
+--- /dev/null
++++ b/services/nlp-worker/src/chunking.py
+@@ -0,0 +1,58 @@
++"""Text cleaning and sentence/line-aware chunking for PDF pages."""
++
++import re
++from typing import List, Optional, Sequence, Tuple
++
++CJK = r"㐀-鿿豈-﫿　-〿＀-￯"
++_SPACE_BETWEEN_CJK = re.compile(rf"(?<=[{CJK}])[ \t]+(?=[{CJK}])")
++_SPACE_CJK_ASCII = re.compile(
++    rf"(?<=[{CJK}])[ \t]+(?=[0-9A-Za-z%])|(?<=[0-9A-Za-z%,.])[ \t]+(?=[{CJK}])"
++)
++# Split after Chinese sentence punctuation, and at line breaks (table rows are lines).
++_UNIT_BOUNDARY = re.compile(r"(?<=[。！？；])|\n")
++
++
++def clean_text(text: str) -> str:
++    """pypdf often inserts spaces between CJK characters ('進 入 民 國'); remove them."""
++    text = text.replace("　", " ")
++    text = _SPACE_BETWEEN_CJK.sub("", text)
++    text = _SPACE_CJK_ASCII.sub("", text)
++    return re.sub(r"[ \t]{2,}", " ", text)
++
++
++def _units(page_text: str) -> List[str]:
++    return [u.strip() for u in _UNIT_BOUNDARY.split(page_text) if u and u.strip()]
++
++
++def chunk_pages(
++    pages: Sequence[Optional[str]], size: int = 500, overlap: int = 100, min_len: int = 30
++) -> List[Tuple[int, str]]:
++    """Build chunks of up to `size` chars from whole sentences/lines.
++
++    Chunks never cross a page boundary, so every chunk has a page number for citations.
++    Consecutive chunks share up to `overlap` chars of trailing sentences.
++    Returns a list of (page_number, chunk_text), page numbers starting at 1.
++    """
++    chunks: List[Tuple[int, str]] = []
++    for page_no, raw in enumerate(pages, start=1):
++        buf: List[str] = []
++        length = 0
++        for unit in _units(clean_text(raw or "")):
++            if buf and length + len(unit) > size:
++                chunks.append((page_no, "\n".join(buf)))
++                tail: List[str] = []
++                tail_len = 0
++                for prev in reversed(buf):
++                    if tail_len + len(prev) > overlap:
++                        break
++                    tail.insert(0, prev)
++                    tail_len += len(prev)
++                buf, length = tail, tail_len
++            while len(unit) > size:  # a single unit longer than a chunk: hard split
++                chunks.append((page_no, unit[:size]))
++                unit = unit[size - overlap:]
++            buf.append(unit)
++            length += len(unit)
++        if buf and length >= min_len:
++            chunks.append((page_no, "\n".join(buf)))
++    return chunks
+diff --git a/services/nlp-worker/src/main.py b/services/nlp-worker/src/main.py
+index 73b5847..841d27e 100644
+--- a/services/nlp-worker/src/main.py
++++ b/services/nlp-worker/src/main.py
+@@ -14,6 +14,8 @@ from psycopg2.extras import execute_values
+ from pypdf import PdfReader
+ from sentence_transformers import SentenceTransformer
+ 
++from chunking import chunk_pages
++
+ logging.basicConfig(
+     level=os.getenv("LOG_LEVEL", "INFO"),
+     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+@@ -33,8 +35,7 @@ MINIO_BUCKET = os.getenv("MINIO_BUCKET", "documents")
+ # Must be the same model the api-gateway uses.
+ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
+ CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "500"))
+-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
+-MIN_CHUNK_LENGTH = 50
++CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))
+ ETL_QUEUE = "etl_queue"
+ 
+ logger.info("Loading embedding model %s ...", EMBEDDING_MODEL)
+@@ -59,35 +60,34 @@ def get_s3_client():
+     )
+ 
+ 
+-def extract_text(pdf_bytes: bytes) -> str:
+-    """Extract text from a PDF. Raises ValueError if nothing readable is found."""
++def extract_pages(pdf_bytes: bytes) -> List[str]:
++    """Extract text per page. Raises ValueError if nothing readable is found."""
+     pdf = PdfReader(io.BytesIO(pdf_bytes))
+     if pdf.is_encrypted:
+         logger.warning("PDF is encrypted, trying empty password")
+         pdf.decrypt("")
+ 
+     pages = []
+-    for i, page in enumerate(pdf.pages):
+-        text = page.extract_text()
+-        if text:
+-            pages.append(text)
+-        else:
++    for i, page in enumerate(pdf.pages, start=1):
++        text = page.extract_text() or ""
++        if not text.strip():
+             logger.warning("Page %d has no extractable text (image-only?)", i)
++        pages.append(text)  # keep empty pages so page numbers stay correct
+ 
+-    content = "\n".join(pages)
+-    if not content.strip():
++    if not any(p.strip() for p in pages):
+         raise ValueError("Extracted text is empty (image-only or empty PDF)")
+-    return content
++    return pages
+ 
+ 
+-def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
+-    """Fixed-size character chunks with overlap; drops very short trailing pieces."""
+-    chunks = []
+-    for start in range(0, len(text), size - overlap):
+-        chunk = text[start:start + size]
+-        if len(chunk) > MIN_CHUNK_LENGTH:
+-            chunks.append(chunk)
+-    return chunks
++def ensure_schema() -> None:
++    """Idempotent migration for databases created before page numbers existed."""
++    conn = get_db_connection()
++    try:
++        with conn.cursor() as cursor:
++            cursor.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS page_number INTEGER")
++        conn.commit()
++    finally:
++        conn.close()
+ 
+ 
+ def set_status(conn, doc_id: int, status: str) -> None:
+@@ -100,20 +100,23 @@ def process_document(conn, s3, doc_id: int, s3_key: str) -> None:
+     set_status(conn, doc_id, "processing")
+ 
+     obj = s3.get_object(Bucket=MINIO_BUCKET, Key=s3_key)
+-    text = extract_text(obj["Body"].read())
+-    logger.info("Doc %s: extracted %d chars", doc_id, len(text))
++    pages = extract_pages(obj["Body"].read())
++    logger.info("Doc %s: extracted %d pages", doc_id, len(pages))
+ 
+-    chunks = chunk_text(text)
++    chunks = chunk_pages(pages, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)
+     logger.info("Doc %s: %d chunks, embedding...", doc_id, len(chunks))
+-    embeddings = model.encode(chunks) if chunks else []
++    texts = [text for _, text in chunks]
++    embeddings = model.encode(texts, batch_size=16, normalize_embeddings=True) if texts else []
+ 
+-    # Chunks and the 'completed' status are committed in one transaction,
+-    # so a failure never leaves half a document searchable.
++    # Old chunks are replaced and the new ones committed together with the 'completed'
++    # status in one transaction: re-indexing is safe, and a failure never leaves
++    # half a document searchable.
+     with conn.cursor() as cursor:
++        cursor.execute("DELETE FROM document_chunks WHERE document_id = %s", (doc_id,))
+         execute_values(
+             cursor,
+-            "INSERT INTO document_chunks (document_id, chunk_text, embedding) VALUES %s",
+-            [(doc_id, c, v.tolist()) for c, v in zip(chunks, embeddings)],
++            "INSERT INTO document_chunks (document_id, page_number, chunk_text, embedding) VALUES %s",
++            [(doc_id, page, text, vec.tolist()) for (page, text), vec in zip(chunks, embeddings)],
+         )
+         cursor.execute("UPDATE documents SET status = 'completed' WHERE id = %s", (doc_id,))
+     conn.commit()
+@@ -140,6 +143,7 @@ def handle_task(raw: bytes) -> None:
+ 
+ 
+ def main() -> None:
++    ensure_schema()
+     logger.info("Worker listening on queue '%s'", ETL_QUEUE)
+     while True:
+         try:
+-- 
+2.43.0

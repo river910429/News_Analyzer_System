@@ -1,0 +1,315 @@
+{
+  "tag": "baseline",
+  "time": "20261124-2126",
+  "n": 43,
+  "summary": {
+    "hit@1": 0.581,
+    "hit@3": 0.814,
+    "hit@5": 0.884,
+    "hit@10": 0.977,
+    "mrr": 0.719
+  },
+  "rows": [
+    {
+      "id": "fin-01",
+      "question": "台積公司民國114年全年合併營收是多少？",
+      "rank": 1,
+      "top1_score": 0.729,
+      "retrieve_ms": 393
+    },
+    {
+      "id": "fin-02",
+      "question": "台積公司114年合併營收較前一年成長多少百分比？",
+      "rank": 2,
+      "top1_score": 0.7262,
+      "retrieve_ms": 122
+    },
+    {
+      "id": "fin-03",
+      "question": "台積公司114年稅後淨利是多少？",
+      "rank": 2,
+      "top1_score": 0.7469,
+      "retrieve_ms": 107
+    },
+    {
+      "id": "fin-04",
+      "question": "台積公司114年每股盈餘（EPS）是多少？",
+      "rank": 3,
+      "top1_score": 0.6735,
+      "retrieve_ms": 108
+    },
+    {
+      "id": "fin-05",
+      "question": "以美元計算，台積公司114年全年合併營收是多少？",
+      "rank": 1,
+      "top1_score": 0.7106,
+      "retrieve_ms": 98
+    },
+    {
+      "id": "fin-06",
+      "question": "若以美元計，台積公司114年營收年增率是多少？",
+      "rank": 10,
+      "top1_score": 0.7115,
+      "retrieve_ms": 126
+    },
+    {
+      "id": "fin-07",
+      "question": "台積公司114年的毛利率是多少？",
+      "rank": 1,
+      "top1_score": 0.7191,
+      "retrieve_ms": 106
+    },
+    {
+      "id": "fin-08",
+      "question": "台積公司114年的營業利益率是多少？",
+      "rank": 1,
+      "top1_score": 0.701,
+      "retrieve_ms": 107
+    },
+    {
+      "id": "fin-09",
+      "question": "台積公司114年的稅後純益率是多少？",
+      "rank": 1,
+      "top1_score": 0.7206,
+      "retrieve_ms": 89
+    },
+    {
+      "id": "fin-10",
+      "question": "台積公司114年每股現金股利配發多少？",
+      "rank": 1,
+      "top1_score": 0.7016,
+      "retrieve_ms": 100
+    },
+    {
+      "id": "tbl-01",
+      "question": "合併損益表中，114年營業收入淨額是多少新台幣仟元？前一年是多少？",
+      "rank": 4,
+      "top1_score": 0.6141,
+      "retrieve_ms": 129
+    },
+    {
+      "id": "tbl-02",
+      "question": "個體（非合併）財務報表中，114年營業收入淨額是多少新台幣仟元？",
+      "rank": 1,
+      "top1_score": 0.6444,
+      "retrieve_ms": 112
+    },
+    {
+      "id": "tbl-03",
+      "question": "合併損益表中114年營業毛利是多少新台幣仟元？",
+      "rank": 2,
+      "top1_score": 0.6724,
+      "retrieve_ms": 108
+    },
+    {
+      "id": "tbl-04",
+      "question": "合併資產負債表中114年資產總額是多少新台幣仟元？",
+      "rank": 1,
+      "top1_score": 0.5932,
+      "retrieve_ms": 121
+    },
+    {
+      "id": "tbl-05",
+      "question": "合併資產負債表中114年負債總額是多少新台幣仟元？",
+      "rank": 6,
+      "top1_score": 0.5902,
+      "retrieve_ms": 102
+    },
+    {
+      "id": "tbl-06",
+      "question": "台積公司114年合併營業活動之現金流入約多少？",
+      "rank": 0,
+      "top1_score": 0.7225,
+      "retrieve_ms": 101
+    },
+    {
+      "id": "why-01",
+      "question": "114年營業收入淨額增加的主要原因是什麼？",
+      "rank": 1,
+      "top1_score": 0.5678,
+      "retrieve_ms": 107
+    },
+    {
+      "id": "why-02",
+      "question": "114年營業費用增加的主要原因是什麼？",
+      "rank": 4,
+      "top1_score": 0.4977,
+      "retrieve_ms": 96
+    },
+    {
+      "id": "ops-01",
+      "question": "台積公司114年晶圓出貨量是多少？",
+      "rank": 1,
+      "top1_score": 0.7198,
+      "retrieve_ms": 77
+    },
+    {
+      "id": "ops-02",
+      "question": "114年7奈米及以下先進製程占整體晶圓銷售金額的比例是多少？",
+      "rank": 5,
+      "top1_score": 0.6044,
+      "retrieve_ms": 122
+    },
+    {
+      "id": "ops-03",
+      "question": "3奈米製程占台積公司114年整體晶圓銷售金額多少？",
+      "rank": 2,
+      "top1_score": 0.6423,
+      "retrieve_ms": 100
+    },
+    {
+      "id": "ops-04",
+      "question": "台積公司114年提供多少種製程技術、為多少客戶生產？",
+      "rank": 2,
+      "top1_score": 0.6897,
+      "retrieve_ms": 106
+    },
+    {
+      "id": "ops-05",
+      "question": "114年台積公司及子公司擁有及管理的年產能是多少？",
+      "rank": 9,
+      "top1_score": 0.6739,
+      "retrieve_ms": 118
+    },
+    {
+      "id": "ops-06",
+      "question": "基於114年的資本支出，台積公司產能約增加多少？",
+      "rank": 1,
+      "top1_score": 0.6935,
+      "retrieve_ms": 108
+    },
+    {
+      "id": "tech-01",
+      "question": "台積公司2奈米製程何時進入量產？",
+      "rank": 1,
+      "top1_score": 0.7134,
+      "retrieve_ms": 100
+    },
+    {
+      "id": "tech-02",
+      "question": "A14技術預計何時量產？",
+      "rank": 1,
+      "top1_score": 0.6577,
+      "retrieve_ms": 104
+    },
+    {
+      "id": "tech-03",
+      "question": "台積公司四座十二吋超大晶圓廠分別是哪幾座？",
+      "rank": 2,
+      "top1_score": 0.6898,
+      "retrieve_ms": 133
+    },
+    {
+      "id": "tech-04",
+      "question": "開放創新平台生態系統連結了多少個電子設計自動化夥伴？",
+      "rank": 1,
+      "top1_score": 0.7515,
+      "retrieve_ms": 119
+    },
+    {
+      "id": "tech-05",
+      "question": "台積公司預估115年總研發預算約占全年營收的多少？",
+      "rank": 1,
+      "top1_score": 0.6913,
+      "retrieve_ms": 128
+    },
+    {
+      "id": "glob-01",
+      "question": "亞利桑那州第二座晶圓廠預計何時量產？",
+      "rank": 1,
+      "top1_score": 0.6914,
+      "retrieve_ms": 140
+    },
+    {
+      "id": "mkt-01",
+      "question": "台積公司估計114年積體電路製造2.0產業規模是多少？",
+      "rank": 1,
+      "top1_score": 0.6983,
+      "retrieve_ms": 129
+    },
+    {
+      "id": "mkt-02",
+      "question": "台積公司估計114年全球半導體（不含記憶體）市場產值是多少？",
+      "rank": 1,
+      "top1_score": 0.6957,
+      "retrieve_ms": 110
+    },
+    {
+      "id": "risk-01",
+      "question": "114年前十大客戶占台積公司營業收入淨額的比例是多少？",
+      "rank": 1,
+      "top1_score": 0.6518,
+      "retrieve_ms": 133
+    },
+    {
+      "id": "risk-02",
+      "question": "台積公司最大客戶占114年營業收入淨額多少？",
+      "rank": 2,
+      "top1_score": 0.6947,
+      "retrieve_ms": 132
+    },
+    {
+      "id": "risk-03",
+      "question": "美元對新台幣貶值1個百分點，對台積公司營業利益率影響多少？",
+      "rank": 1,
+      "top1_score": 0.761,
+      "retrieve_ms": 135
+    },
+    {
+      "id": "risk-04",
+      "question": "台積公司的風險管理系統依循哪個國際標準？",
+      "rank": 1,
+      "top1_score": 0.7418,
+      "retrieve_ms": 102
+    },
+    {
+      "id": "esg-01",
+      "question": "台積公司預計何時實現淨零排放？",
+      "rank": 3,
+      "top1_score": 0.6935,
+      "retrieve_ms": 96
+    },
+    {
+      "id": "esg-02",
+      "question": "台積公司預計何時達成100%使用再生能源？",
+      "rank": 6,
+      "top1_score": 0.7338,
+      "retrieve_ms": 113
+    },
+    {
+      "id": "corp-01",
+      "question": "台積公司成立於哪一年？",
+      "rank": 1,
+      "top1_score": 0.7427,
+      "retrieve_ms": 106
+    },
+    {
+      "id": "corp-02",
+      "question": "台積公司的台股股票代碼是多少？",
+      "rank": 1,
+      "top1_score": 0.6832,
+      "retrieve_ms": 89
+    },
+    {
+      "id": "corp-03",
+      "question": "截至114年底台積公司全球員工總數是多少？",
+      "rank": 1,
+      "top1_score": 0.7331,
+      "retrieve_ms": 86
+    },
+    {
+      "id": "corp-04",
+      "question": "台積公司的核心價值是什麼？",
+      "rank": 2,
+      "top1_score": 0.7497,
+      "retrieve_ms": 114
+    },
+    {
+      "id": "corp-05",
+      "question": "台積公司tFlex彈性福利計劃提供台灣員工多少點數？",
+      "rank": 1,
+      "top1_score": 0.7839,
+      "retrieve_ms": 124
+    }
+  ]
+}
