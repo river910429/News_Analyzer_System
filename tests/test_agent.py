@@ -144,3 +144,28 @@ def test_llm_failure_stops_with_trace_instead_of_raising():
     assert result["stopped_reason"] == "llm_error"
     assert result["steps"][0]["result"] == "2"
     assert "TimeoutError" in result["answer"]
+
+
+def test_nested_schema_like_arguments_are_unwrapped():
+    from src.agent import _parse_arguments
+
+    raw = {"company": {"type": "string", "value": "聯電"}, "query": {"text": "負債總額"}, "top_k": "5"}
+    assert _parse_arguments(raw) == {"company": "聯電", "query": "負債總額", "top_k": 5}
+    assert _parse_arguments('{"company": {"company": "聯發科"}}') == {"company": "聯發科"}
+
+
+def test_agent_tool_receives_plain_strings_from_nested_call():
+    chat, _ = scripted_chat(
+        [
+            tool_call("search_report", company={"type": "string", "value": "聯電"}, query={"text": "毛利率"}),
+            {"content": "聯電毛利率 29.0%（來源：第 4 頁）"},
+        ]
+    )
+    seen = {}
+
+    def search_report(query, top_k=5, company=""):
+        seen.update(query=query, company=company)
+        return "聯電毛利率29.0%"
+
+    run_agent("聯電毛利率？", chat, {"search_report": search_report, "calculator": calculator})
+    assert seen == {"query": "毛利率", "company": "聯電"}

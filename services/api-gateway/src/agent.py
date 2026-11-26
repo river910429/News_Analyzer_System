@@ -16,26 +16,19 @@ logger = logging.getLogger("api-gateway.agent")
 
 SYSTEM_PROMPT = """你是財報分析助理，透過工具查詢使用者上傳的財報來回答問題。
 
-工作流程：
-0. 比較兩家以上公司時，每家公司分別呼叫一次 search_report，並在 company 參數填入公司名稱。
-1. 先用 search_report 查資料。問題牽涉兩個數字時（例如今年與去年、總數與部分），要確認兩個數字都查到；
-   沒查到就換關鍵字再查，或用 get_page 讀整頁。
-2. 只要能從查到的數字算出答案，就要計算，不可以因為文件沒有直接寫出答案就說查不到。
-3. 所有加減乘除、比例、百分點差異都必須呼叫 calculator，算式裡的數字不要有逗號。
-4. 財報表格的年度欄位順序因公司而異，先看表頭的年度標示再取數字，不要拿錯欄位；
-   搜尋結果可能來自不同公司的年報，只用問題所問公司的資料（看檔名）。
-5. 回答要列出用到的數字與算式，數字照抄並註明單位，最後用「（來源：第 N 頁）」標註頁碼。
-6. 確實查了兩次以上仍找不到，才回答「根據目前的文件，無法得知此資訊」。
-
-7. 同一頁可能同時有「合併」與「個體」報表，兩組數字大小不同；計算時兩個數字必須來自同一張表。
-8. 使用工具時一定要真的發出工具呼叫，不要在回答文字裡寫出工具名稱或假裝的呼叫結果。
-
-範例流程：
-問題：毛利率比前一年增加幾個百分點？
-第一步：呼叫 search_report 工具，查詢「毛利率 前一年」，得到「毛利率為59.9%，前一年為56.1%」（第 7 頁）。
-第二步：呼叫 calculator 工具，算式為 59.9 - 56.1，得到 3.8。
-最後回答：毛利率由 56.1% 增加至 59.9%，增加 3.8 個百分點（來源：第 7 頁）。
-（最後的回答只寫數字、算式與來源，不要提到工具名稱。）
+規則：
+1. 先用 search_report 查資料，不要憑記憶回答。比較兩家以上公司時，每家公司分別呼叫一次
+   search_report，company 參數填公司名稱（例如「台積電」）。
+2. 問題牽涉兩個數字時（今年與去年、總數與部分），確認兩個數字都查到；沒查到就換關鍵字再查，
+   或用 get_page 讀整頁。
+3. 只要能從查到的數字算出答案就要計算，所有加減乘除、比例、百分點差異都呼叫 calculator，
+   算式裡的數字不要有逗號。
+4. 財報表格的年度欄位順序因公司而異，先看表頭的年度標示再取數字；同一頁可能同時有「合併」與
+   「個體」報表，計算用的數字必須來自同一張表；只用問題所問公司的資料（看檔名）。
+5. 工具呼叫一定要真的發出，不要把呼叫寫在回答文字裡。
+6. 回答列出用到的數字與算式，數字照抄並註明單位，最後用「（來源：第 N 頁）」標註頁碼；
+   回答中不要提到工具名稱，也不要描述呼叫過程。
+7. 確實查了兩次以上仍找不到，才回答「根據目前的文件，無法得知此資訊」。
 
 請用繁體中文簡潔回答。"""
 
@@ -162,12 +155,33 @@ def calculator(expression: str) -> str:
 ChatFn = Callable[[List[Dict[str, Any]], List[Dict[str, Any]]], Dict[str, Any]]
 
 
+def _scalar(value: Any) -> Any:
+    """Unwrap values a small model nests by mistake.
+
+    qwen2.5 sometimes copies the JSON schema into the call, sending
+    {"company": {"type": "string", "value": "聯電"}} or {"query": {"text": "..."}}
+    instead of plain strings.
+    """
+    while isinstance(value, dict):
+        for key in ("value", "text", "query", "company", "expression", "content"):
+            if key in value:
+                value = value[key]
+                break
+        else:
+            strings = [v for v in value.values() if isinstance(v, (str, int, float))]
+            value = strings[0] if strings else ""
+    return value
+
+
 def _parse_arguments(raw: Any) -> Dict[str, Any]:
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str) and raw.strip():
-        return json.loads(raw)
-    return {}
+    if isinstance(raw, str):
+        raw = json.loads(raw) if raw.strip() else {}
+    if not isinstance(raw, dict):
+        return {}
+    args = {k: _scalar(v) for k, v in raw.items()}
+    if isinstance(args.get("top_k"), str) and args["top_k"].isdigit():
+        args["top_k"] = int(args["top_k"])
+    return args
 
 
 def run_agent(

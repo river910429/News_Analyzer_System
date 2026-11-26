@@ -235,3 +235,15 @@ fell to 1/14, with answers about unrelated passages, tool calls printed as text 
 Cause: Ollama's default context is 4,096 tokens, and two searches of five ~500-character passages
 already exceed it. Ollama then silently drops the oldest messages — the system prompt and tool
 definitions first. Fix: `num_ctx` 16,384, and a warning when a prompt nears the limit.
+
+Correction: raising `num_ctx` did not change a single answer (temperature 0.1 reproduced them
+almost word for word), so the context window was not the cause. The answers themselves showed it:
+
+- **Schema-shaped arguments.** The model sent `{"company": {"type": "string", "value": "聯電"}}`
+  and `{"query": {"text": "…"}}` — the tool raised, and the model looped on search_report
+  (up to 10 calls) or gave up. The harness now unwraps such values before calling the tool.
+- **The worked example was read as data.** Answers reused its numbers and wording ("第一步：呼叫
+  search_report…", TSMC's EPS 66.25/45.25 reported as UMC's, "根據提供的範文推測"). The example
+  is removed; the rules stay.
+- The eval now stores each step's arguments and result, so the next failure can be read from the
+  trace instead of inferred from the answer.

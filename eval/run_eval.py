@@ -211,6 +211,11 @@ def main() -> None:
             if args.agent:
                 row["steps"] = len(res["steps"])
                 row["tools"] = [s["tool"] for s in res["steps"]]
+                row["trace"] = [
+                    {"tool": s["tool"], "arguments": s.get("arguments"), "result": str(s.get("result", ""))[:300]}
+                    for s in res["steps"]
+                ]
+                row["critiques"] = res.get("critiques", [])
                 row["stopped_reason"] = res["stopped_reason"]
             row["answer"] = res["answer"]
             row["answer_hit"] = answer_matches(res["answer"], item.get("answer_keywords") or item["keywords"])
