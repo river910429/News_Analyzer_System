@@ -234,3 +234,60 @@ def test_critique_runs_on_full_results_not_the_truncated_steps():
     tools = {"search_report": lambda query, top_k=5, company="": "x" * 2500 + "115年第一季營收 100 億"}
     result = run_agent("115年第一季的營收是多少？", chat, tools)
     assert result["critiques"] == []
+
+
+# --- second round: text tool calls, ungrounded numbers, guardrail ---
+
+
+def test_recover_tool_calls_written_as_text():
+    from src.agent import recover_tool_calls
+
+    # x-08: the same call printed three times
+    text = 'search_report({"company": "聯電", "query": "114年負債總額", "top_k": 5})\n\n' * 3
+    calls = recover_tool_calls(text)
+    assert len(calls) == 1 and calls[0]["function"]["arguments"]["company"] == "聯電"
+    # u-04: qwen2.5's native format leaking into the content
+    text = 'ilor\n{"name": "search_report", "arguments": {"company": "聯發科", "query": "股價"}}\n</tool_call>'
+    assert recover_tool_calls(text)[0]["function"]["name"] == "search_report"
+    assert recover_tool_calls('calculator("6.0 - 5.0") 得到 1.0')[0]["function"]["arguments"] == {
+        "expression": "6.0 - 5.0"
+    }
+    assert recover_tool_calls("毛利率為 59.9%（來源：第 7 頁）") == []
+
+
+def test_agent_executes_recovered_calls():
+    chat, calls = scripted_chat(
+        [
+            {"content": 'search_report({"query": "負債總額"})'},
+            {"content": "負債總額 1,000 仟元（來源：第 5 頁）"},
+        ]
+    )
+    tools = {"search_report": lambda query, top_k=5, company="": "第 5 頁 負債總額 1,000 仟元"}
+    result = run_agent("負債總額是多少？", chat, tools)
+    assert result["steps"][0]["tool"] == "search_report" and result["steps"][0]["recovered"]
+    assert "recovered" not in str(calls[1]["messages"][-2])  # not sent back to Ollama
+    assert result["critiques"] == []
+
+
+def test_ungrounded_operands():
+    from src.agent import ungrounded_operands
+
+    evidence = "員工總數90557人專業人員44690人"
+    # multi-10: 95570 is not in the passage (90,557 is)
+    assert ungrounded_operands("44690 / 95570 * 100 = 46.76", evidence) == ["95570"]
+    assert ungrounded_operands("44,690 / 90,557 * 100 = 49.35", evidence) == []
+    # a number must match whole, not inside a longer one
+    assert ungrounded_operands("557 / 2 = 278.5", evidence) == ["557"]
+    # results of earlier calculations count
+    assert ungrounded_operands("49.35 - 46.76 = 2.59", evidence, ["49.35", "46.76"]) == []
+    assert ungrounded_operands("44690 / 90557 = 0.4935\n0.4935 * 100 = 49.35", evidence) == []
+
+
+def test_guardrail_abstains_when_the_model_keeps_deriving():
+    answer = "95570 - 9582 - 44690 - 11368 - 24917 = 5013"
+    chat, _ = scripted_chat([tool_call("search_report", query="熊本 員工")] + [{"content": answer}] * 4)
+    tools = {"search_report": lambda query, top_k=5, company="": "2025年 員工 95570 9582 44690 11368 24917"}
+    result = run_agent("台積電熊本晶圓廠114年的員工人數是多少？", chat, tools, max_critiques=3)
+    assert len(result["critiques"]) == 3
+    assert result["stopped_reason"] == "guardrail:derived"
+    assert result["answer"].startswith("根據目前的文件，無法得知")

@@ -271,4 +271,30 @@ annual total, the wrong gross-margin line.
 | `company` argument added | 1/14 |
 | `num_ctx` 16k (not the cause) | 0/14 |
 | arguments unwrapped, example removed | 4/14 |
-| harness checks on the answer | *pending* |
+| harness checks on the answer | 6/14 |
+| text tool calls recovered, number grounding, guardrail | *pending* |
+
+**Second round.** The checks fixed x-02 (arithmetic), u-02 (period) and, with the metric fix,
+u-01. What was left:
+
+- **Tool calls printed as text** (x-08 with 0 tools, u-04): `search_report({...})` repeated three
+  times, and qwen2.5's native `{"name": …, "arguments": …}</tool_call>` leaking into the content.
+  The "you only mentioned the tool" critique did not help — the model repeated the text. The
+  harness now parses such calls and executes them (marked `recovered` in the trace), the usual
+  fallback in agent frameworks for models with unreliable tool-call formatting.
+- **Feedback ignored** (u-03): sent back three times, the model kept subtracting staff
+  categories. When the budget runs out on a *period* or *derived-number* failure, the harness
+  now replaces the answer with an abstention (`stopped_reason = guardrail:…`). For a
+  financial assistant, "not in the document" is a better failure than a made-up figure.
+- **Numbers that are not in the passages**: TSMC multi-10 divided by 95,570 (the passage says
+  90,557); multi-12 wrote 1,224.2億 as `1,22420000000`. Every operand of a calculation must
+  now occur, as a whole number, in the retrieved text or in an earlier calculation result.
+
+### The single-company baseline was inflated
+
+On the 12 TSMC questions the agent now scores 7/12, against 10/12 earlier. The earlier prompt's
+worked example used TSMC's real gross margins — 59.9% vs 56.1%, giving 3.8 — which is exactly
+question multi-01. The example leaked a test answer into the prompt, so 10/12 overstated the agent; 7/12 is the first
+clean number. Remaining TSMC errors are reasoning, not mechanics: quarterly instead of annual
+dividends (multi-04), subtracting the second-largest customer as well as the largest
+(multi-07), and abstaining on the 112 customer share (multi-05).

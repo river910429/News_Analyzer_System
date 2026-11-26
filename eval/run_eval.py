@@ -212,7 +212,12 @@ def main() -> None:
                 row["steps"] = len(res["steps"])
                 row["tools"] = [s["tool"] for s in res["steps"]]
                 row["trace"] = [
-                    {"tool": s["tool"], "arguments": s.get("arguments"), "result": str(s.get("result", ""))[:300]}
+                    {
+                        "tool": s["tool"],
+                        "arguments": s.get("arguments"),
+                        "recovered": s.get("recovered", False),
+                        "result": str(s.get("result", ""))[:1500],
+                    }
                     for s in res["steps"]
                 ]
                 row["critiques"] = res.get("critiques", [])
@@ -229,7 +234,11 @@ def main() -> None:
             marks.append("answer " + ("OK" if row["answer_hit"] else "WRONG"))
         if "steps" in row:
             marks.append(f"{row['steps']} tools")
-        print(f"[{i:>2}/{len(qa)}] {'  '.join(marks):<28} {item['question']}")
+            if row["critiques"]:
+                marks.append(f"{len(row['critiques'])} crit")
+            if row["stopped_reason"] != "answered":
+                marks.append(row["stopped_reason"])
+        print(f"[{i:>2}/{len(qa)}] {'  '.join(marks):<44} {item['question']}")
 
     n = len(rows)
     summary = summarize(rows, [k for k in KS if k <= args.top_k], check_answers)

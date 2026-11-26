@@ -101,59 +101,144 @@ def _period_variants(question: str) -> List[List[str]]:
     return periods
 
 
-def critique(question: str, answer: str, steps: List[Dict[str, Any]], evidence: Optional[str] = None) -> Optional[str]:
-    """Harness-side checks on a draft answer. Returns feedback for the model, or None to accept.
+_NUM = re.compile(r"\d[\d,]*(?:\.\d+)?")
+GUARDRAIL_ANSWER = "根據目前的文件，無法得知此資訊（查到的資料沒有直接記載這個數字，不以推算或其他期間的數字代替）。"
+# Checks whose failure, if the model keeps ignoring the feedback, makes the harness abstain.
+_HARD_CHECKS = {"period", "derived"}
 
-    Small local models skip the calculator and mis-calculate, give up after one search, or
-    answer a question the document cannot answer with a number from another period or one
-    they derived themselves. These checks catch each case and ask the model to try again.
-    `evidence` is the full text of the search/page results (steps keep only a prefix).
+
+def _grounded(number: str, evidence: str) -> bool:
+    """True if the number (commas ignored, "29.00" == "29.0" == "29") occurs as a whole number."""
+    v = number.replace(",", "")
+    forms = {v}
+    if "." in v:
+        forms.add(v.rstrip("0").rstrip("."))
+    return any(re.search(rf"(?<![\d.]){re.escape(f)}(?!\d|\.\d)", evidence) for f in forms if f)
+
+
+def ungrounded_operands(answer: str, evidence: str, known: List[str] = ()) -> List[str]:
+    """Numbers used as inputs to the answer's calculations that appear nowhere in the evidence.
+
+    `evidence` should have whitespace and commas removed. Results of earlier calculations
+    (calculator outputs, or "= x" earlier in the answer) count as known. Small numbers
+    (fewer than 3 digits) and the percent factor 100 are skipped.
     """
+    pool = evidence + "|" + "|".join(k.replace(",", "") for k in known)
+    missing = []
+    for m in _EXPR.finditer(answer):
+        for tok in _NUM.findall(m.group(1)):
+            digits = tok.replace(",", "").replace(".", "")
+            if len(digits) < 3 or tok.replace(",", "") in ("100", "100.0"):
+                continue
+            if not _grounded(tok, pool) and tok not in missing:
+                missing.append(tok)
+        pool += "|" + m.group(2).replace(",", "")
+    return missing
+
+
+def _check(
+    question: str, answer: str, steps: List[Dict[str, Any]], evidence: Optional[str] = None
+) -> Optional[tuple]:
+    """Harness-side checks on a draft answer. Returns (check_name, feedback) or None to accept."""
     used = [s["tool"] for s in steps]
     if evidence is None:
         evidence = "\n".join(str(s.get("result", "")) for s in steps if s["tool"] != "calculator")
-    evidence = "".join(evidence.split())
+    evidence = "".join(evidence.split()).replace(",", "")
     # A tool named in the answer but never called means the model only pretended to use it.
     faked = [name for name in ("calculator", "search_report", "get_page") if name in answer and name not in used]
     if faked:
-        return (
+        return "faked_tool", (
             f"你在回答裡提到 {', '.join(faked)}，但並沒有真的呼叫這個工具。"
             "請發出工具呼叫拿到結果，最後的回答不要提到工具名稱。"
         )
     searches = used.count("search_report") + used.count("get_page")
     if _is_abstention(answer):
         if _REFUSAL in answer and searches < 2:
-            return "你只查了一次就說查不到。請換個關鍵字再用 search_report 查一次，或用 get_page 讀相關頁面，再回答。"
+            return "early_refusal", (
+                "你只查了一次就說查不到。請換個關鍵字再用 search_report 查一次，或用 get_page 讀相關頁面，再回答。"
+            )
         return None
 
     # The question asks about a period that never appears in what was retrieved.
     if searches:
         for variants in _period_variants(question):
             if not any(v in evidence for v in variants):
-                return (
+                return "period", (
                     f"問題問的是「{variants[0]}」，但查到的資料裡沒有出現這個期間。"
                     "不要用其他期間的數字代替。請針對這個期間再查一次；文件確實沒有，"
                     "就回答「根據目前的文件，無法得知此資訊」。"
                 )
 
+    needs_calc = any(h in question for h in _CALC_HINTS)
+    # A question that asks for a stated figure, answered with a figure the model worked out.
+    if not needs_calc and _DERIVATION.search(answer):
+        return "derived", (
+            "這題問的是年報直接記載的數字，你卻用其他數字推算出來。年報沒有直接寫出這個數字時，"
+            "正確的回答是「根據目前的文件，無法得知此資訊」；如果有直接寫，請照抄原文數字並註明頁碼。"
+        )
+
+    if searches:
+        calc_results = [str(s.get("result", "")) for s in steps if s["tool"] == "calculator"]
+        missing = ungrounded_operands(answer, evidence, calc_results)
+        if missing:
+            return "ungrounded", (
+                f"你的算式用了 {', '.join(missing[:3])}，但查到的資料裡沒有這個數字。"
+                "請回到查到的段落，照抄原文的數字（注意單位與年度欄位）再計算；資料不夠就再查一次。"
+            )
+
     wrong = check_arithmetic(answer)
     if wrong:
         w = wrong[0]
-        return (
+        return "arithmetic", (
             f"你的算式 {w['expression']} 算錯了：正確結果是 {w['actual']}，不是 {w['claimed']}。"
             "請用正確的結果重新回答，計算請呼叫 calculator。"
         )
 
-    needs_calc = any(h in question for h in _CALC_HINTS)
-    # A question that asks for a stated figure, answered with a figure the model worked out.
-    if not needs_calc and _DERIVATION.search(answer):
-        return (
-            "這題問的是年報直接記載的數字，你卻用其他數字推算出來。年報沒有直接寫出這個數字時，"
-            "正確的回答是「根據目前的文件，無法得知此資訊」；如果有直接寫，請照抄原文數字並註明頁碼。"
-        )
     if needs_calc and "calculator" not in used and not _EXPR.search(answer):
-        return "這題需要計算，但你還沒有使用 calculator。請把查到的數字用 calculator 算出結果，再根據計算結果回答。"
+        return "no_calculator", (
+            "這題需要計算，但你還沒有使用 calculator。請把查到的數字用 calculator 算出結果，再根據計算結果回答。"
+        )
     return None
+
+
+def critique(question: str, answer: str, steps: List[Dict[str, Any]], evidence: Optional[str] = None) -> Optional[str]:
+    """Feedback for the model on a draft answer, or None to accept.
+
+    Small local models skip the calculator and mis-calculate, give up after one search, copy
+    a number that is not in the passages, or answer a question the document cannot answer
+    with a number from another period or one they derived themselves. `evidence` is the full
+    text of the search/page results (steps keep only a prefix).
+    """
+    verdict = _check(question, answer, steps, evidence)
+    return verdict[1] if verdict else None
+
+
+# Tool calls the model printed as text instead of emitting them: qwen2.5's native
+# <tool_call>{"name": ..., "arguments": {...}}</tool_call>, or search_report({...}).
+_TEXT_CALL_JSON = re.compile(r'\{\s*"name"\s*:\s*"(\w+)"\s*,\s*"arguments"\s*:\s*(\{[^{}]*\})\s*\}')
+_TEXT_CALL_FUNC = re.compile(r"\b(search_report|get_page|calculator)\s*\(\s*(\{[^{}]*\}|\"[^\"]*\")\s*\)")
+_FIRST_PARAM = {"search_report": "query", "calculator": "expression"}
+
+
+def recover_tool_calls(content: str) -> List[Dict[str, Any]]:
+    """Parse tool calls written in the reply text. Duplicates are dropped."""
+    found, seen = [], set()
+    for regex in (_TEXT_CALL_JSON, _TEXT_CALL_FUNC):
+        for name, raw in regex.findall(content or ""):
+            try:
+                if raw.startswith("{"):
+                    args = json.loads(raw)
+                elif name in _FIRST_PARAM:
+                    args = {_FIRST_PARAM[name]: json.loads(raw)}
+                else:
+                    continue
+            except json.JSONDecodeError:
+                continue
+            key = (name, json.dumps(args, sort_keys=True, ensure_ascii=False))
+            if key not in seen:
+                seen.add(key)
+                found.append({"function": {"name": name, "arguments": args}, "recovered": True})
+    return found
 
 
 TOOL_SCHEMAS: List[Dict[str, Any]] = [
@@ -311,16 +396,27 @@ def run_agent(
             answer = f"模型呼叫失敗，無法完成回答（{e.__class__.__name__}）。"
             break
         tool_calls = reply.get("tool_calls") or []
-        messages.append({"role": "assistant", "content": reply.get("content", ""), "tool_calls": tool_calls})
+        if not tool_calls:
+            tool_calls = recover_tool_calls(reply.get("content", ""))
+            if tool_calls:
+                logger.info("agent: recovered %d tool call(s) written as text", len(tool_calls))
+        sent_calls = [{"function": c.get("function", {})} for c in tool_calls]
+        messages.append({"role": "assistant", "content": reply.get("content", ""), "tool_calls": sent_calls})
 
         if not tool_calls:
             answer = (reply.get("content") or "").strip()
-            feedback = None
-            if len(critiques) < max_critiques:
-                feedback = critique(question, answer, steps, "\n".join(evidence))
-            if feedback is None:
+            verdict = _check(question, answer, steps, "\n".join(evidence))
+            if verdict is None:
                 break
-            logger.info("agent critique: %s", feedback)
+            check, feedback = verdict
+            if len(critiques) >= max_critiques:
+                # The model ignored the feedback every time. For a number from another period or
+                # one it derived itself, abstaining is safer than passing the number on.
+                if check in _HARD_CHECKS:
+                    logger.info("agent guardrail (%s): answer replaced with abstention", check)
+                    answer, stopped_reason = GUARDRAIL_ANSWER, f"guardrail:{check}"
+                break
+            logger.info("agent critique (%s): %s", check, feedback)
             critiques.append(feedback)
             messages.append({"role": "user", "content": feedback})
             continue
@@ -337,7 +433,10 @@ def run_agent(
                 args = fn.get("arguments")
                 result = f"工具錯誤：{e.__class__.__name__}: {e}"
             logger.info("agent tool %s(%s) -> %d chars", name, args, len(result))
-            steps.append({"tool": name, "arguments": args, "result": result[:2000]})
+            step = {"tool": name, "arguments": args, "result": result[:2000]}
+            if call.get("recovered"):
+                step["recovered"] = True
+            steps.append(step)
             if name != "calculator":
                 evidence.append(result)
             messages.append({"role": "tool", "tool_name": name, "content": result})
