@@ -68,6 +68,12 @@ def main() -> None:
     val_path = data / "val.jsonl"
     val = load(val_path, tokenizer, args.max_len) if val_path.exists() and val_path.stat().st_size else None
 
+    # Sanity check before spending an hour: show what the first example is trained on.
+    first = train[0]
+    target = [t for t, label in zip(first["input_ids"], first["labels"], strict=True) if label != -100]
+    print(f"first example: {len(first['input_ids'])} tokens, {len(target)} trained on")
+    print("trained text (start):", tokenizer.decode(target)[:300].replace("\n", " "))
+
     model = AutoModelForCausalLM.from_pretrained(
         args.base,
         quantization_config=BitsAndBytesConfig(
@@ -80,7 +86,10 @@ def main() -> None:
         device_map={"": 0},
         attn_implementation="sdpa",
     )
-    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+    model.config.use_cache = False  # incompatible with gradient checkpointing
+    model = prepare_model_for_kbit_training(
+        model, use_gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False}
+    )
     model = get_peft_model(
         model,
         LoraConfig(
@@ -110,6 +119,7 @@ def main() -> None:
             save_strategy="epoch",
             save_total_limit=1,
             gradient_checkpointing=True,
+            gradient_checkpointing_kwargs={"use_reentrant": False},
             optim="paged_adamw_8bit",
             report_to="none",
             seed=args.seed,
@@ -119,6 +129,8 @@ def main() -> None:
         data_collator=DataCollatorForSeq2Seq(tokenizer, padding=True, label_pad_token_id=-100),
     )
     trainer.train()
+    if torch.cuda.is_available():
+        print(f"peak GPU memory: {torch.cuda.max_memory_allocated() / 2**30:.1f} GiB")
     model.save_pretrained(args.out)
     tokenizer.save_pretrained(args.out)
     history = [h for h in trainer.state.log_history if "loss" in h or "eval_loss" in h]
