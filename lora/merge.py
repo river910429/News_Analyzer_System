@@ -23,8 +23,11 @@ def main() -> None:
     p.add_argument("--out", default=str(HERE / "out" / "merged"))
     args = p.parse_args()
 
-    base = AutoModelForCausalLM.from_pretrained(args.base, torch_dtype=torch.float16, device_map={"": "cpu"})
-    model = PeftModel.from_pretrained(base, args.adapter).merge_and_unload()
+    # No device_map: with one, PEFT re-dispatches the model through accelerate when loading the
+    # adapter, and accelerate's memory estimate asked for disk offload of half the layers.
+    # A plain CPU load needs ~15 GB of RAM for 7B in fp16.
+    base = AutoModelForCausalLM.from_pretrained(args.base, torch_dtype=torch.float16, low_cpu_mem_usage=True)
+    model = PeftModel.from_pretrained(base, args.adapter, torch_device="cpu").merge_and_unload()
     model.save_pretrained(args.out, safe_serialization=True)
     AutoTokenizer.from_pretrained(args.base).save_pretrained(args.out)
     print(f"merged model -> {args.out}")
