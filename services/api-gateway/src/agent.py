@@ -192,7 +192,13 @@ def run_agent(
     answer = ""
 
     for _ in range(max_steps):
-        reply = chat_fn(messages, TOOL_SCHEMAS)
+        try:
+            reply = chat_fn(messages, TOOL_SCHEMAS)
+        except Exception as e:  # LLM timeout or connection error: stop, keep the trace
+            logger.exception("LLM call failed")
+            stopped_reason = "llm_error"
+            answer = f"模型呼叫失敗，無法完成回答（{e.__class__.__name__}）。"
+            break
         tool_calls = reply.get("tool_calls") or []
         messages.append({"role": "assistant", "content": reply.get("content", ""), "tool_calls": tool_calls})
 

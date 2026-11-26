@@ -129,3 +129,18 @@ def test_critique_catches_tool_calls_written_as_text():
     assert "並沒有真的呼叫" in critique("毛利率增加幾個百分點？", narrated, steps)
     # mentioning a tool that really was called is fine
     assert critique("毛利率增加幾個百分點？", narrated, steps + [{"tool": "calculator"}]) is None
+
+
+def test_llm_failure_stops_with_trace_instead_of_raising():
+    calls = {"n": 0}
+
+    def chat(messages, tools):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise TimeoutError("read timed out")
+        return tool_call("calculator", expression="1+1")
+
+    result = run_agent("?", chat, {"calculator": calculator})
+    assert result["stopped_reason"] == "llm_error"
+    assert result["steps"][0]["result"] == "2"
+    assert "TimeoutError" in result["answer"]

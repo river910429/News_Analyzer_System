@@ -34,6 +34,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger("api-gateway")
 
+
+class _SkipHealthChecks(logging.Filter):
+    """Kubernetes probes hit /health every few seconds; keep them out of the access log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "/health" not in record.getMessage()
+
+
+logging.getLogger("uvicorn.access").addFilter(_SkipHealthChecks())
+
 # ----- Configuration (all from environment, see .env.example) -----
 REDIS_HOST = os.getenv("REDIS_HOST", "redis-queue")
 DB_HOST = os.getenv("DB_HOST", "db")
@@ -48,7 +58,9 @@ MINIO_BUCKET = os.getenv("MINIO_BUCKET", "documents")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://host.docker.internal:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5")
-OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "120"))
+OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "180"))
+# Cap generated tokens: a small model occasionally loops, and an unbounded answer turns into a timeout.
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "768"))
 SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.4"))
 RETRIEVAL_MODE = os.getenv("RETRIEVAL_MODE", "hybrid")  # hybrid | vector | bm25
 CANDIDATES = int(os.getenv("RETRIEVAL_CANDIDATES", "30"))  # per retriever, before fusion
@@ -527,7 +539,7 @@ def _ollama_payload(prompt: str, stream: bool) -> dict:
         "model": OLLAMA_MODEL,
         "prompt": prompt,
         "stream": stream,
-        "options": {"temperature": 0.1},  # factual Q&A: keep answers deterministic
+        "options": {"temperature": 0.1, "num_predict": OLLAMA_NUM_PREDICT},  # factual Q&A: deterministic
     }
 
 
@@ -708,7 +720,7 @@ def ollama_chat(messages, tools, model: Optional[str] = None):
         "model": model or OLLAMA_MODEL,
         "messages": messages,
         "stream": False,
-        "options": {"temperature": 0.1},
+        "options": {"temperature": 0.1, "num_predict": OLLAMA_NUM_PREDICT},
     }
     if tools:
         payload["tools"] = tools

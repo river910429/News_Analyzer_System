@@ -198,8 +198,14 @@ python eval/run_eval.py --qa eval/agent_qa_multidoc.jsonl --agent --tag multidoc
 | TSMC 43 questions, TSMC only indexed | 0.674 | 0.907 | 0.953 | 1.000 | 0.788 |
 | TSMC 43 questions, three reports indexed | 0.628 | 0.791 | 0.884 | 0.977 | 0.731 |
 | MediaTek + UMC 42 questions | 0.643 | 0.833 | 0.929 | 1.000 | 0.762 |
-| + company filter (NER) — TSMC | | | | | |
-| + company filter (NER) — MediaTek + UMC | | | | | |
+| + company filter (NER) — TSMC | 0.628 | 0.814 | 0.884 | 1.000 | 0.736 |
+| + company filter (NER) — MediaTek + UMC | **0.667** | **0.881** | **0.976** | 1.000 | **0.799** |
+
+The filter helped MediaTek/UMC (Hit@5 0.929 → 0.976) but not TSMC. The reason was in the
+benchmark: 11 TSMC questions were written for a one-document index and do not name the
+company ("合併資產負債表中114年負債總額…"), so there is nothing to filter on — and with three
+reports the question really is ambiguous. Those 11 questions now start with 台積公司
+(original wording kept in `single_doc_question`).
 
 Adding two more reports pushed TSMC answers down: other companies' balance sheets and
 financial ratios compete for the same terms (負債總額 fell to rank 10). The agent got 4 of the

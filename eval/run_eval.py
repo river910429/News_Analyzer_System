@@ -133,6 +133,13 @@ def rescore(path: Path, qa: list) -> None:
     print(f"{path.name}: " + "  ".join(f"{k}={v}" for k, v in data["summary"].items()))
 
 
+def ask(args, item: dict) -> dict:
+    if args.agent:
+        return post(f"{args.api}/agent", {"question": item["question"], "model": args.model}, args.timeout)
+    payload = {"query": item["question"], "top_k": 5, "mode": args.mode, "rerank": args.rerank or None}
+    return post(f"{args.api}/search", payload, args.timeout)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--api", default="http://localhost:8000")
@@ -197,17 +204,14 @@ def main() -> None:
 
         if check_answers:
             t0 = time.time()
+            try:
+                res = ask(args, item)
+            except Exception as e:  # timeout / HTTP 500: count as wrong, keep going
+                res = {"answer": f"ERROR: {e}", "steps": [], "stopped_reason": "request_error"}
             if args.agent:
-                res = post(f"{args.api}/agent", {"question": item["question"], "model": args.model}, args.timeout)
                 row["steps"] = len(res["steps"])
                 row["tools"] = [s["tool"] for s in res["steps"]]
                 row["stopped_reason"] = res["stopped_reason"]
-            else:
-                res = post(
-                    f"{args.api}/search",
-                    {"query": item["question"], "top_k": 5, "mode": args.mode, "rerank": args.rerank or None},
-                    args.timeout,
-                )
             row["answer"] = res["answer"]
             row["answer_hit"] = answer_matches(res["answer"], item.get("answer_keywords") or item["keywords"])
             row["answer_s"] = round(time.time() - t0, 1)
