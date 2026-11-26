@@ -39,6 +39,9 @@ Design choices:
   fixed nothing (no critique, no arithmetic correction, no tool call recovered from text).
   The student never imitates an error the harness had to repair.
 - **Loss on assistant turns only.** Tool results and the prompt are context, not targets.
+- **Two independent paths must agree.** The teacher writes the question and its answer while
+  looking at the passage; later the teacher must find the answer by itself through search. A
+  trajectory is kept only when both agree. A lookup answer must also appear in the passage.
 - **Same quantization as the baseline.** The merged model is imported as q4_K_M, like the
   stock `qwen2.5:7b`, so 7B vs 7B-LoRA compares training, not precision.
 
@@ -80,3 +83,7 @@ Out of memory in step 3: `--max-len 4096` (drops the longest conversations) or
 | qwen2.5:7b | 9/14 | 11/12 | 3.7 |
 | qwen2.5:14b (teacher) | 12/14 | 11/12 | 6.2 |
 | qwen2.5-fin:7b (QLoRA) | *pending* | *pending* | |
+
+Also compared: `harness_critiques` and `harness_fixes` in the eval summary — how often the
+harness had to step in. Training should lower them: the harness catches errors, the
+fine-tuned model makes fewer.

@@ -107,6 +107,10 @@ def summarize(rows: list, ks, with_answers: bool = False) -> dict:
         steps = [r["steps"] for r in rows if "steps" in r]
         if steps:
             summary["avg_tool_calls"] = round(sum(steps) / len(steps), 2)
+            # How often the harness had to step in: a better model needs it less.
+            agent_rows = [r for r in rows if "steps" in r]
+            summary["harness_critiques"] = sum(len(r.get("critiques", [])) for r in agent_rows)
+            summary["harness_fixes"] = sum(len(r.get("corrections", [])) for r in agent_rows)
         summary["avg_answer_s"] = round(sum(r["answer_s"] for r in rows) / len(rows), 1)
     return summary
 

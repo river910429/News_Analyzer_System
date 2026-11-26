@@ -80,6 +80,16 @@ def numeric_passages(chunks: list, min_numbers: int = 4, min_len: int = 150) -> 
     return keep
 
 
+def number_in(answer: str, text: str) -> bool:
+    """True if the answer's number appears in the passage (commas and spaces ignored)."""
+    m = re.search(r"\d[\d,]*(?:\.\d+)?", answer)
+    if not m:
+        return False
+    value = m.group(0).replace(",", "")
+    flat = re.sub(r"(?<=\d)[,\s]+(?=\d)", "", text)
+    return re.search(rf"(?<![\d.]){re.escape(value)}(?!\d)", flat) is not None
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--api", default="http://localhost:30080")
@@ -115,6 +125,9 @@ def main() -> None:
                     question, answer = str(q.get("question", "")).strip(), str(q.get("answer", "")).strip()
                     if not question or not re.search(r"\d", answer) or name not in question or question in seen:
                         continue
+                    # A lookup answer must be copied from the passage; the teacher can misread too.
+                    if q.get("type") == "lookup" and not number_in(answer, c["text"]):
+                        continue
                     seen.add(question)
                     row = {
                         "id": f"{company}-{n}",
@@ -123,6 +136,7 @@ def main() -> None:
                         "type": q.get("type", ""),
                         "company": company,
                         "page": c["page"],
+                        "passage": c["text"],
                     }
                     f.write(json.dumps(row, ensure_ascii=False) + "\n")
                     n += 1

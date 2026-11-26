@@ -93,3 +93,12 @@ def test_collect_keeps_only_clean_correct_trajectories():
     unanswerable = {"type": "unanswerable"}
     assert rejection_reason(unanswerable, good | {"answer": "根據目前的文件，無法得知此資訊"}) == ""
     assert rejection_reason(unanswerable, good) == "wrong_answer"
+
+
+def test_lookup_answers_must_come_from_the_passage():
+    from make_questions import number_in
+
+    passage = "毛利率為48.2%，營業收入 1,234,567 千元"
+    assert number_in("48.2", passage) and number_in("1,234,567", passage)
+    assert not number_in("48.3", passage)
+    assert not number_in("234", passage)  # not a piece of a longer number

@@ -35,7 +35,13 @@ def test_summarize_answer_only_rows():
     ]
     s = summarize(rows, [1, 3], with_answers=True)
     assert "hit@1" not in s
-    assert s == {"answer_hit": 0.5, "avg_tool_calls": 3.0, "avg_answer_s": 3.0}
+    assert s == {
+        "answer_hit": 0.5,
+        "avg_tool_calls": 3.0,
+        "harness_critiques": 0,
+        "harness_fixes": 0,
+        "avg_answer_s": 3.0,
+    }
 
 
 def test_answer_matches_numbers_on_boundaries():
