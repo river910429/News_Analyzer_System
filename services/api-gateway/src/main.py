@@ -7,7 +7,7 @@ import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import boto3
 import psycopg2
@@ -25,6 +25,7 @@ from .agent import calculator as calculator_tool
 from .agent import run_agent
 from .companies import DISPLAY_NAMES, companies_in, document_company, link
 from .lexical import reciprocal_rank_fusion
+from .numerals import annotate_numbers
 from .query_expansion import expand_query
 from .tokenizer import tokenize
 
@@ -709,12 +710,15 @@ class AgentStep(BaseModel):
     tool: str
     arguments: object
     result: str
+    recovered: bool = False  # the model wrote this call as text; the harness parsed and ran it
 
 
 class AgentResponse(BaseModel):
     answer: str
     steps: List[AgentStep]
     critiques: List[str]
+    checks: List[str] = []
+    corrections: List[Dict[str, Any]] = []
     stopped_reason: str
     elapsed_ms: int
 
@@ -748,13 +752,14 @@ def search_report_tool(query: str, top_k: int = 5, company: str = "") -> str:
     if not results:
         return "沒有找到相關段落。"
     return "\n\n".join(
-        f"[{i}] 文件 {r.document_id}（{r.filename}）第 {r.page} 頁\n{r.content}"
+        f"[{i}] 文件 {r.document_id}（{r.filename}）第 {r.page} 頁\n{annotate_numbers(r.content)}"
         for i, r in enumerate(results, start=1)
     )
 
 
 def get_page_tool(document_id: int, page: int) -> str:
-    return page_text(int(document_id), int(page)) or f"文件 {document_id} 第 {page} 頁沒有內容。"
+    text = page_text(int(document_id), int(page))
+    return annotate_numbers(text) if text else f"文件 {document_id} 第 {page} 頁沒有內容。"
 
 
 AGENT_TOOLS = {

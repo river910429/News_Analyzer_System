@@ -11,7 +11,7 @@ import logging
 import operator
 import re
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 logger = logging.getLogger("api-gateway.agent")
 
@@ -78,6 +78,45 @@ def check_arithmetic(answer: str) -> List[Dict[str, Any]]:
     return wrong
 
 
+def _format_like(value: float, claimed: str) -> str:
+    """Write a corrected value with the claimed number's decimals (at least 2 for fractions)."""
+    decimals = len(claimed.split(".")[1]) if "." in claimed else 0
+    if float(value).is_integer() and decimals == 0:
+        return f"{int(value):,}" if "," in claimed else str(int(value))
+    return f"{value:.{max(decimals, 2)}f}"
+
+
+def correct_arithmetic(answer: str, max_rounds: int = 5) -> tuple:
+    """Replace wrong "expression = result" values in the answer with the true values.
+
+    qwen2.5 ignored "your calculation is wrong, the result is X" feedback three times in a row,
+    so the harness fixes the arithmetic itself. A corrected value that the answer repeats later
+    is replaced there too, and chained expressions are re-checked until nothing changes.
+    Returns (corrected_answer, [{"expression", "claimed", "actual"}, ...]).
+    """
+    corrections = []
+    for _ in range(max_rounds):
+        wrong = None
+        for m in _EXPR.finditer(answer):
+            if check_arithmetic(m.group(0)):
+                wrong = m
+                break
+        if wrong is None:
+            break
+        fix = check_arithmetic(wrong.group(0))[0]
+        claimed = wrong.group(2)
+        actual = float(calculator(fix["expression"]))
+        if wrong.group(3) and abs(actual) < 1.5 and abs(actual * 100 - float(claimed.replace(",", ""))) < 50:
+            actual *= 100  # "a / b = 34.57%" with the * 100 left out
+        new_value = _format_like(actual, claimed)
+        corrections.append({"expression": fix["expression"], "claimed": claimed, "actual": new_value})
+        start, end = wrong.span(2)
+        answer = answer[:start] + new_value + answer[end:]
+        if len(claimed.replace(",", "").replace(".", "")) >= 3:  # repeated later in the text
+            answer = re.sub(rf"(?<![\d.,]){re.escape(claimed)}(?![\d]|\.\d)", new_value, answer)
+    return answer, corrections
+
+
 def _period_variants(question: str) -> List[List[str]]:
     """Periods the question asks about, each with the spellings a report may use.
 
@@ -119,7 +158,7 @@ def _grounded(number: str, evidence: str) -> bool:
 def ungrounded_operands(answer: str, evidence: str, known: List[str] = ()) -> List[str]:
     """Numbers used as inputs to the answer's calculations that appear nowhere in the evidence.
 
-    `evidence` should have whitespace and commas removed. Results of earlier calculations
+    `evidence` should have thousands separators removed (whitespace kept). Results of earlier calculations
     (calculator outputs, or "= x" earlier in the answer) count as known. Small numbers
     (fewer than 3 digits) and the percent factor 100 are skipped.
     """
@@ -137,13 +176,22 @@ def ungrounded_operands(answer: str, evidence: str, known: List[str] = ()) -> Li
 
 
 def _check(
-    question: str, answer: str, steps: List[Dict[str, Any]], evidence: Optional[str] = None
+    question: str,
+    answer: str,
+    steps: List[Dict[str, Any]],
+    evidence: Optional[str] = None,
+    known: Sequence[str] = (),
 ) -> Optional[tuple]:
     """Harness-side checks on a draft answer. Returns (check_name, feedback) or None to accept."""
     used = [s["tool"] for s in steps]
     if evidence is None:
         evidence = "\n".join(str(s.get("result", "")) for s in steps if s["tool"] != "calculator")
-    evidence = "".join(evidence.split()).replace(",", "")
+    # Two views of the retrieved text. Periods are matched with spaces removed ("115 年" -> "115年").
+    # Numbers are matched with thousands separators removed but spaces kept: removing spaces
+    # glues table cells together ("199,140,569 192,015,673" -> one long number), which made
+    # every operand look ungrounded in the first version of this check.
+    numbers_text = re.sub(r"(?<=\d),(?=\d{3})", "", evidence)
+    evidence = "".join(evidence.split())
     # A tool named in the answer but never called means the model only pretended to use it.
     faked = [name for name in ("calculator", "search_report", "get_page") if name in answer and name not in used]
     if faked:
@@ -179,7 +227,7 @@ def _check(
 
     if searches:
         calc_results = [str(s.get("result", "")) for s in steps if s["tool"] == "calculator"]
-        missing = ungrounded_operands(answer, evidence, calc_results)
+        missing = ungrounded_operands(answer, numbers_text, calc_results + list(known))
         if missing:
             return "ungrounded", (
                 f"你的算式用了 {', '.join(missing[:3])}，但查到的資料裡沒有這個數字。"
@@ -372,7 +420,9 @@ def run_agent(
     max_steps: int = 6,
     max_critiques: int = 3,
 ) -> Dict[str, Any]:
-    """Run the tool-calling loop. Returns {"answer", "steps", "critiques", "stopped_reason", "elapsed_ms"}.
+    """Run the tool-calling loop.
+
+    Returns {"answer", "steps", "critiques", "checks", "corrections", "stopped_reason", "elapsed_ms"}.
 
     max_steps limits LLM calls; max_critiques limits how often a draft answer is sent back.
     """
@@ -384,6 +434,8 @@ def run_agent(
     steps: List[Dict[str, Any]] = []
     evidence: List[str] = []  # full search/page results, for the critique
     critiques: List[str] = []
+    checks: List[str] = []  # which check produced each critique
+    corrections: List[Dict[str, Any]] = []  # arithmetic the harness fixed in the answer
     stopped_reason = "answered"
     answer = ""
 
@@ -404,8 +456,11 @@ def run_agent(
         messages.append({"role": "assistant", "content": reply.get("content", ""), "tool_calls": sent_calls})
 
         if not tool_calls:
-            answer = (reply.get("content") or "").strip()
-            verdict = _check(question, answer, steps, "\n".join(evidence))
+            answer, fixed = correct_arithmetic((reply.get("content") or "").strip())
+            if fixed:
+                logger.info("agent: corrected arithmetic %s", fixed)
+                corrections.extend(fixed)
+            verdict = _check(question, answer, steps, "\n".join(evidence), known=[c["actual"] for c in corrections])
             if verdict is None:
                 break
             check, feedback = verdict
@@ -418,6 +473,7 @@ def run_agent(
                 break
             logger.info("agent critique (%s): %s", check, feedback)
             critiques.append(feedback)
+            checks.append(check)
             messages.append({"role": "user", "content": feedback})
             continue
 
@@ -450,6 +506,8 @@ def run_agent(
         "answer": answer or "無法生成回答",
         "steps": steps,
         "critiques": critiques,
+        "checks": checks,
+        "corrections": corrections,
         "stopped_reason": stopped_reason,
         "elapsed_ms": round((time.perf_counter() - started) * 1000),
     }

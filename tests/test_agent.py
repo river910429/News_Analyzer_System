@@ -291,3 +291,48 @@ def test_guardrail_abstains_when_the_model_keeps_deriving():
     assert len(result["critiques"]) == 3
     assert result["stopped_reason"] == "guardrail:derived"
     assert result["answer"].startswith("根據目前的文件，無法得知")
+
+
+# --- third round: grounding saw glued table cells; arithmetic is corrected, not critiqued ---
+
+
+def test_grounding_does_not_glue_table_cells():
+    from src.agent import critique
+
+    # The real x-08 passage: a table row. Removing whitespace used to join the cells.
+    result = (
+        "114年 113年 差異數\n負債總額 199,140,569 192,015,673 7,124,896 4\n"
+        "資產總額 578,996,009 570,200,677 8,795,332 2"
+    )
+    steps = [{"tool": "search_report", "result": result}, {"tool": "calculator", "result": "34.394115"}]
+    answer = "199,140,569 / 578,996,009 * 100 = 34.39%（來源：第 50 頁）"
+    assert critique("聯電114年負債總額約占資產總額的百分之幾？", answer, steps) is None
+
+
+def test_correct_arithmetic_rewrites_wrong_results():
+    from src.agent import correct_arithmetic
+
+    fixed, corrections = correct_arithmetic(
+        "199,140,569 / 578,996,009 * 100 = 34.58%\n因此，聯電負債約占資產總額的 34.58%。"
+    )
+    assert fixed.count("34.39%") == 2 and "34.58" not in fixed
+    assert corrections[0]["claimed"] == "34.58"
+    # a chained calculation is recomputed after the first fix
+    fixed, corrections = correct_arithmetic(
+        "68906499 / 237553199 * 100 = 29.1%\n59.9 - 29.1 = 30.8"
+    )
+    assert "= 29.01%" in fixed and "= 30.89" in fixed and len(corrections) == 2
+    # correct answers are untouched
+    ok = "66.25 - 45.25 = 21.00（來源：第 7 頁）"
+    assert correct_arithmetic(ok) == (ok, [])
+
+
+def test_agent_corrects_arithmetic_without_a_critique_round():
+    chat, calls = scripted_chat(
+        [tool_call("search_report", query="負債"), {"content": "199140569 / 578996009 * 100 = 34.58%"}]
+    )
+    tools = {"search_report": lambda query, top_k=5, company="": "114年 負債總額 199,140,569 資產總額 578,996,009"}
+    result = run_agent("聯電114年負債總額約占資產總額的百分之幾？", chat, tools)
+    assert result["answer"] == "199140569 / 578996009 * 100 = 34.39%"
+    assert result["critiques"] == [] and len(result["corrections"]) == 1
+    assert len(calls) == 2

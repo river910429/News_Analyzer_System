@@ -41,9 +41,13 @@ def post(url: str, payload: dict, timeout: float) -> object:
         return json.loads(resp.read().decode("utf-8"))
 
 
+_ANNOTATION = re.compile(r"〔[^〕]*〕")
+
+
 def normalize(text: str) -> str:
-    # PDF extraction often inserts line breaks / spaces inside numbers and words.
-    return "".join(text.split())
+    # PDF extraction often inserts line breaks / spaces inside numbers and words. Values the
+    # indexer appends in 〔〕 (民國一一四年〔114年〕) are dropped so keywords match the source text.
+    return "".join(_ANNOTATION.sub("", text).split())
 
 
 def first_relevant_rank(chunks: list, keywords: list, doc: str = None) -> int:
@@ -221,6 +225,8 @@ def main() -> None:
                     for s in res["steps"]
                 ]
                 row["critiques"] = res.get("critiques", [])
+                row["checks"] = res.get("checks", [])
+                row["corrections"] = res.get("corrections", [])
                 row["stopped_reason"] = res["stopped_reason"]
             row["answer"] = res["answer"]
             row["answer_hit"] = answer_matches(res["answer"], item.get("answer_keywords") or item["keywords"])
@@ -234,11 +240,15 @@ def main() -> None:
             marks.append("answer " + ("OK" if row["answer_hit"] else "WRONG"))
         if "steps" in row:
             marks.append(f"{row['steps']} tools")
-            if row["critiques"]:
+            if row["checks"]:
+                marks.append("crit:" + ",".join(row["checks"]))
+            elif row["critiques"]:
                 marks.append(f"{len(row['critiques'])} crit")
+            if row["corrections"]:
+                marks.append(f"fixed {len(row['corrections'])}")
             if row["stopped_reason"] != "answered":
                 marks.append(row["stopped_reason"])
-        print(f"[{i:>2}/{len(qa)}] {'  '.join(marks):<44} {item['question']}")
+        print(f"[{i:>2}/{len(qa)}] {'  '.join(marks):<60} {item['question']}")
 
     n = len(rows)
     summary = summarize(rows, [k for k in KS if k <= args.top_k], check_answers)

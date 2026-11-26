@@ -272,7 +272,8 @@ annual total, the wrong gross-margin line.
 | `num_ctx` 16k (not the cause) | 0/14 |
 | arguments unwrapped, example removed | 4/14 |
 | harness checks on the answer | 6/14 |
-| text tool calls recovered, number grounding, guardrail | *pending* |
+| text tool calls recovered, number grounding, guardrail | 6/14 |
+| grounding bug fixed, arithmetic corrected, Chinese numerals annotated | *pending* |
 
 **Second round.** The checks fixed x-02 (arithmetic), u-02 (period) and, with the metric fix,
 u-01. What was left:
@@ -298,3 +299,38 @@ question multi-01. The example leaked a test answer into the prompt, so 10/12 ov
 clean number. Remaining TSMC errors are reasoning, not mechanics: quarterly instead of annual
 dividends (multi-04), subtracting the second-largest customer as well as the largest
 (multi-07), and abstaining on the 112 customer share (multi-05).
+
+### Third round: reading the traces
+
+The r2 traces (arguments and results stored per step) overturned two assumptions.
+
+**The grounding check was wrong, not the model.** It fired on correct answers — x-08's
+`199,140,569 / 578,996,009` was flagged although both numbers are in the passage. The check
+removed all whitespace before matching, which glues table cells together
+(`199,140,569 192,015,673` → `199140569192015673`), so no table number ever matched. Three
+false critiques per question then pushed the model into worse answers (x-06 44.98 → 44.92).
+Numbers are now matched with thousands separators removed and spaces kept; a test uses the
+real table row.
+
+**The model ignores arithmetic feedback, so the harness corrects it.** "34.58 is wrong, the
+result is 34.39" was ignored repeatedly. Wrong `expression = result` values are now rewritten
+in the answer (and wherever the answer repeats them, re-checking chained expressions), with
+each fix stored in `corrections`. Replaying r2's answers: x-06, x-08 and multi-08 are fixed
+without another LLM call.
+
+**Chinese numerals were the retrieval root cause.** The passages the agent never found:
+
+| Question | Sentence in the report | Why it was missed |
+|---|---|---|
+| x-01 MediaTek EPS | 民國一一四年…每股盈餘為新台幣66.16元 | query "114年" ≠ "一一四年" |
+| x-05 MediaTek dividend | 民國一一四年總計配發每股新台幣54元 | same |
+| x-10 UMC 113 EPS | 民國一一三年…每股普通股獲利為新臺幣3.80元 | year form, and 每股普通股獲利 ≠ 每股盈餘 |
+| multi-10 TSMC staff | 全球員工總數為9萬557人 | the model read 95570 |
+| multi-12 TSMC USD revenue | 1,224億2,000萬美元 | the model wrote 1,22420000000, then 32.34億 |
+
+Search instead returned tables headed "114年度", which hold other figures (MediaTek's 29.00
+first-half dividend was taken as its EPS). `numerals.py` now annotates these forms at index
+time and in tool output — 民國一一四年〔114年〕, 9萬557〔90,557〕, 1,224億2,000萬〔1,224.2億 =
+122,420,000,000〕 — keeping the original text for citations; evaluation strips the 〔〕 before
+keyword matching. 每股盈餘 → 每股普通股獲利 was added to the synonym dictionary. Requires a
+reindex, after which retrieval metrics are re-measured too.

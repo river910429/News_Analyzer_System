@@ -13,6 +13,7 @@ from typing import Dict, Tuple
 SYNONYMS: Dict[str, Tuple[str, ...]] = {
     # income statement
     "EPS": ("每股盈餘",),
+    "每股盈餘": ("每股普通股獲利", "每股獲利"),  # 聯電's report: 每股普通股獲利
     "營收": ("營業收入", "營業收入淨額"),
     "淨利": ("稅後淨利", "本期淨利"),
     "淨賺": ("稅後淨利",),

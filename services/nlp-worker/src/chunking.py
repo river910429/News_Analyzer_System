@@ -3,6 +3,8 @@
 import re
 from typing import List, Optional, Sequence, Tuple
 
+from numerals import annotate_numbers
+
 CJK = r"㐀-鿿豈-﫿　-〿＀-￯"
 _SPACE_BETWEEN_CJK = re.compile(rf"(?<=[{CJK}])[ \t]+(?=[{CJK}])")
 _SPACE_CJK_ASCII = re.compile(
@@ -13,11 +15,15 @@ _UNIT_BOUNDARY = re.compile(r"(?<=[。！？；])|\n")
 
 
 def clean_text(text: str) -> str:
-    """pypdf often inserts spaces between CJK characters ('進 入 民 國'); remove them."""
+    """pypdf often inserts spaces between CJK characters ('進 入 民 國'); remove them.
+
+    Chinese years and mixed numbers are then annotated (民國一一四年〔114年〕, 9萬557〔90,557〕)
+    so BM25 matches query terms like "114年" and the LLM reads the right value.
+    """
     text = text.replace("　", " ")
     text = _SPACE_BETWEEN_CJK.sub("", text)
     text = _SPACE_CJK_ASCII.sub("", text)
-    return re.sub(r"[ \t]{2,}", " ", text)
+    return annotate_numbers(re.sub(r"[ \t]{2,}", " ", text))
 
 
 def _units(page_text: str) -> List[str]:
