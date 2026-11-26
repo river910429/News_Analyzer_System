@@ -1,0 +1,21 @@
+# KEDA scales nlp-worker on the length of the Redis job queue.
+# Jobs being processed are no longer in the list (BRPOP removed them), so the queue
+# can be empty while workers are busy: KEDA then scales in, and the SIGTERM handler
+# plus terminationGracePeriodSeconds let the current document finish.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: nlp-worker
+spec:
+  scaleTargetRef:
+    name: nlp-worker
+  minReplicaCount: 1      # keep one warm worker: loading bge-m3 takes ~30 s
+  maxReplicaCount: 3      # each worker holds bge-m3 in RAM (~2.5 GB)
+  pollingInterval: 5
+  cooldownPeriod: 60
+  triggers:
+    - type: redis
+      metadata:
+        address: redis-queue.financial-rag.svc.cluster.local:6379
+        listName: etl_queue
+        listLength: "1"   # one waiting document per worker

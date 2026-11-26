@@ -105,3 +105,10 @@ def test_agent_endpoint_returns_answer_and_steps(monkeypatch):
     body = res.json()
     assert body["answer"] == "答案是 6"
     assert body["steps"][0] == {"tool": "calculator", "arguments": {"expression": "2*3"}, "result": "6"}
+
+
+def test_delete_route_exists():
+    from src import main
+
+    routes = {(route.path, tuple(sorted(route.methods))) for route in main.app.routes if hasattr(route, "methods")}
+    assert ("/documents/{doc_id}", ("DELETE",)) in routes

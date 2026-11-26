@@ -97,7 +97,12 @@ Upload a PDF in the sidebar, wait until its status becomes `completed`, select i
 | `GET` | `/documents/{id}/pages/{page}` | Full text of one page |
 | `GET` | `/documents/{id}/chunks` | All chunks of a document (offline experiments) |
 | `POST` | `/documents/reindex` | Re-index every document |
+| `DELETE` | `/documents/{id}` | Delete a document, its chunks, postings and stored PDF |
 | `GET` | `/health` | DB and Redis status |
+
+## Kubernetes
+
+The stack also runs on Kubernetes (Docker Desktop) with **KEDA autoscaling the indexing workers on the Redis queue length**, graceful scale-in, probes, PVCs and a shared model cache. See [`k8s/README.md`](k8s/README.md).
 
 ## MCP
 

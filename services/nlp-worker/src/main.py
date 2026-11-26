@@ -4,6 +4,7 @@ import io
 import json
 import logging
 import os
+import signal
 import time
 from typing import List
 
@@ -150,10 +151,22 @@ def handle_task(raw: bytes) -> None:
         conn.close()
 
 
+_stopping = False
+
+
+def _request_stop(signum, _frame) -> None:
+    """On SIGTERM (Kubernetes scale-in, docker stop) finish the current document, then exit."""
+    global _stopping
+    _stopping = True
+    logger.info("Received signal %s: finishing the current task, then exiting", signum)
+
+
 def main() -> None:
+    signal.signal(signal.SIGTERM, _request_stop)
+    signal.signal(signal.SIGINT, _request_stop)
     ensure_schema()
     logger.info("Worker listening on queue '%s'", ETL_QUEUE)
-    while True:
+    while not _stopping:
         try:
             # Wake up every 5 s instead of blocking forever, so an idle connection
             # never hits a socket timeout.
@@ -169,6 +182,7 @@ def main() -> None:
             # Keep the worker alive on unexpected errors (e.g. Redis/DB briefly down).
             logger.exception("Unexpected error in worker loop")
             time.sleep(2)
+    logger.info("Worker stopped")
 
 
 if __name__ == "__main__":

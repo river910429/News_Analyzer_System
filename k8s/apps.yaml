@@ -1,0 +1,166 @@
+# Application services. Images are built locally by `docker compose build`; Docker
+# Desktop's Kubernetes shares the Docker image store, so imagePullPolicy: Never.
+# Configuration comes from the `rag-env` secret, created from .env by deploy.ps1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: api-gateway}
+  template:
+    metadata:
+      labels: {app: api-gateway}
+    spec:
+      containers:
+        - name: api
+          image: news_analyzer_system-api-gateway:latest
+          imagePullPolicy: Never
+          envFrom:
+            - secretRef: {name: rag-env}
+          ports:
+            - containerPort: 8000
+          # Loading bge-m3 takes ~30-60 s: the startup probe gives it time before
+          # liveness checks begin, readiness keeps traffic away until DB/Redis are reachable.
+          startupProbe:
+            httpGet: {path: /health, port: 8000}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /health, port: 8000}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: 8000}
+            periodSeconds: 20
+            failureThreshold: 3
+          volumeMounts:
+            - {name: hf-cache, mountPath: /root/.cache/huggingface}
+          resources:
+            requests: {cpu: 500m, memory: 2Gi}
+            limits: {memory: 4Gi}
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim: {claimName: hf-cache}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+spec:
+  type: NodePort
+  selector: {app: api-gateway}
+  ports:
+    - port: 8000
+      nodePort: 30080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nlp-worker
+spec:
+  # KEDA (scaledobject.yaml) owns the replica count once installed.
+  replicas: 1
+  selector:
+    matchLabels: {app: nlp-worker}
+  template:
+    metadata:
+      labels: {app: nlp-worker}
+    spec:
+      # Scale-in sends SIGTERM; the worker finishes the document it is embedding
+      # (a few minutes on CPU) before exiting, so give it time.
+      terminationGracePeriodSeconds: 600
+      containers:
+        - name: worker
+          image: news_analyzer_system-nlp-worker:latest
+          imagePullPolicy: Never
+          envFrom:
+            - secretRef: {name: rag-env}
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            # Several workers share the CPU: cap PyTorch threads per pod so they
+            # do not oversubscribe the cores.
+            - name: OMP_NUM_THREADS
+              value: "6"
+            - name: MKL_NUM_THREADS
+              value: "6"
+          volumeMounts:
+            - {name: hf-cache, mountPath: /root/.cache/huggingface}
+          resources:
+            requests: {cpu: "2", memory: 2500Mi}
+            limits: {memory: 4Gi}
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim: {claimName: hf-cache}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: mcp-server}
+  template:
+    metadata:
+      labels: {app: mcp-server}
+    spec:
+      containers:
+        - name: mcp
+          image: news_analyzer_system-mcp-server:latest
+          imagePullPolicy: Never
+          env:
+            - name: API_URL
+              value: http://api-gateway:8000
+          ports:
+            - containerPort: 8001
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server
+spec:
+  type: NodePort
+  selector: {app: mcp-server}
+  ports:
+    - port: 8001
+      nodePort: 30801
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: frontend}
+  template:
+    metadata:
+      labels: {app: frontend}
+    spec:
+      containers:
+        - name: frontend
+          image: news_analyzer_system-frontend:latest
+          imagePullPolicy: Never
+          env:
+            # The browser calls the API through its NodePort.
+            - name: VITE_API_URL
+              value: http://localhost:30080
+          ports:
+            - containerPort: 5173
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  type: NodePort
+  selector: {app: frontend}
+  ports:
+    - port: 5173
+      nodePort: 30173

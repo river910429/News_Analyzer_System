@@ -242,6 +242,27 @@ def list_documents():
     ]
 
 
+@app.delete("/documents/{doc_id}")
+def delete_document(doc_id: int):
+    """Delete a document, its chunks and postings (ON DELETE CASCADE) and the stored PDF."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM documents WHERE id = %s RETURNING s3_key", (doc_id,))
+            row = cursor.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        conn.commit()
+    finally:
+        conn.close()
+    try:
+        get_s3_client().delete_object(Bucket=MINIO_BUCKET, Key=row[0])
+    except Exception:
+        logger.warning("Could not delete %s from object storage", row[0])
+    logger.info("Deleted document %s", doc_id)
+    return {"status": "deleted", "doc_id": doc_id}
+
+
 @app.post("/documents/reindex")
 def reindex_all():
     """Queue every document for re-indexing (after changing chunking or the inverted index)."""
