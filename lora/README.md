@@ -122,12 +122,34 @@ Both models are re-evaluated after the fixes.
 
 ## Results
 
-| Model (same harness) | multi-company 14 | TSMC 12 | s / answer |
-|---|---|---|---|
-| qwen2.5:7b | 9/14 | 11/12 | 3.7 |
-| qwen2.5:14b (teacher) | 12/14 | 11/12 | 6.2 |
-| qwen2.5-fin:7b (QLoRA), first run — invalid, see below | 6/14 | 10/12 | 3.5 |
-| qwen2.5-fin:7b (QLoRA), fixed template + LaTeX parsing | *pending* | *pending* | |
+Final run, same harness for all (after the template and LaTeX fixes):
+
+| Model | multi-company 14 | TSMC 12 | total 26 | harness critiques / fixes | s / answer |
+|---|---|---|---|---|---|
+| qwen2.5 7B (stock) | 8/14 | 10/12 | 18/26 | 10 / 5 | 4.4 / 3.1 |
+| **qwen2.5-fin 7B (QLoRA)** | **10/14** | 10/12 | **20/26** | 12 / 6 | 3.6 / 2.9 |
+| qwen2.5 14B (teacher)* | 12/14 | 11/12 | 23/26 | — | 6.2 / 4.8 |
+
+\* measured one harness revision earlier (before the `no_search` and LaTeX checks).
+
+What changed, question by question:
+
+- **Gained:** the unanswerable questions — 4/4 abstentions (stock 3/4: it inferred a share
+  price from a dividend, "假設股價與每股股利之間有直接關係"); UMC/TSMC gross-margin gap (x-02).
+- **Lost:** TSMC professional-staff share (multi-10): the fine-tuned model abstained.
+- **Unchanged, both wrong:** quarterly vs annual dividend (x-05, multi-04), UMC EPS taken from
+  the dividend line (x-10), UMC gross margin (x-03). 14B gets the dividend questions right, but
+  the training data (ASE, Novatek, Realtek) had few quarterly-dividend passages, so that skill
+  was not distilled. Distillation transfers what the data contains.
+- No `\r\n` in the fine-tuned answers after the template fix, confirming that diagnosis.
+
+**Honest reading.** +2 of 26 is about the size of run-to-run variance seen earlier (±1–2), so
+this is a positive signal, not a proven gain. The clear effects are behavioural — consistent
+abstention on unanswerable questions, and faster answers (−0.8 s multi-company) — while the
+harness still does much of the work on cross-company questions (12 critiques, 6 arithmetic
+fixes). Next steps that would make the result firmer: a larger evaluation set (100+
+questions), training data aimed at the remaining error types (dividend totals, EPS vs
+dividend lines), and retraining at `--max-len 4096` to stay in VRAM.
 
 Also compared: `harness_critiques` and `harness_fixes` in the eval summary — how often the
 harness had to step in. Training should lower them: the harness catches errors, the
