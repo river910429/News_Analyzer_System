@@ -273,7 +273,7 @@ annual total, the wrong gross-margin line.
 | arguments unwrapped, example removed | 4/14 |
 | harness checks on the answer | 6/14 |
 | text tool calls recovered, number grounding, guardrail | 6/14 |
-| grounding bug fixed, arithmetic corrected, Chinese numerals annotated | *pending* |
+| grounding bug fixed, arithmetic corrected, Chinese numerals annotated | **9/14** |
 
 **Second round.** The checks fixed x-02 (arithmetic), u-02 (period) and, with the metric fix,
 u-01. What was left:
@@ -334,3 +334,40 @@ time and in tool output — 民國一一四年〔114年〕, 9萬557〔90,557〕,
 122,420,000,000〕 — keeping the original text for citations; evaluation strips the 〔〕 before
 keyword matching. 每股盈餘 → 每股普通股獲利 was added to the synonym dictionary. Requires a
 reindex, after which retrieval metrics are re-measured too.
+
+### Results after the third round
+
+| Agent | before | after |
+|---|---|---|
+| multi-company (14) | 6/14 | **9/14** |
+| TSMC (12, clean baseline without the leaked example) | 7/12 | **11/12** |
+| avg answer time, multi-company | 4.6 s | 3.7 s |
+
+Arithmetic correction fixed 5 answers outright (x-06, x-07, x-08, multi-08, multi-10); the
+numeral annotations brought in the passages for x-01 (MediaTek EPS 66.16), multi-05 (the 112 customer share) and multi-12
+(1,224.2億 − 900.8億). multi-07 also flipped to correct, which is run-to-run variance, not a fix.
+
+Retrieval after the reindex (annotated chunks):
+
+| Hit@5 / MRR | before | after |
+|---|---|---|
+| TSMC 43, three reports, company filter | 0.930 / 0.784 | **0.953 / 0.818** |
+| MediaTek + UMC 42 | 0.976 / 0.799 | 0.976 / 0.801 |
+
+What is left is the model's reading, not the plumbing: quarterly instead of annual dividends
+(x-05, multi-04: 6.0 per quarter vs 18.0 per year), the dividend per share taken as EPS
+(x-10: 2.60 vs 3.34), a wrong UMC gross margin (x-02, x-03), and the global headcount given as
+the Kumamoto plant's (u-03). These are what the model-size comparison and LoRA stage target.
+
+### Model size: qwen2.5:14b under the same harness
+
+| Same harness | multi-company 14 | TSMC 12 | s / answer |
+|---|---|---|---|
+| qwen2.5:7b | 9/14 | 11/12 | 3.7 |
+| qwen2.5:14b | **12/14** | 11/12 | 6.2 |
+
+14B fixed exactly the reading errors (annual vs quarterly dividends, UMC gross margin, the
+Kumamoto headcount) and needed far fewer critiques. Its own misses: the dividend per share
+taken for UMC's EPS (both models — the EPS sentence has no year in it), a hallucinated India
+revenue figure, and multi-11 answered without reading the passage. This gap is the target of
+the QLoRA stage (`lora/`): distil 14B's trajectories into 7B.

@@ -422,7 +422,8 @@ def run_agent(
 ) -> Dict[str, Any]:
     """Run the tool-calling loop.
 
-    Returns {"answer", "steps", "critiques", "checks", "corrections", "stopped_reason", "elapsed_ms"}.
+    Returns {"answer", "steps", "critiques", "checks", "corrections", "stopped_reason", "messages",
+    "elapsed_ms"}.
 
     max_steps limits LLM calls; max_critiques limits how often a draft answer is sent back.
     """
@@ -509,5 +510,6 @@ def run_agent(
         "checks": checks,
         "corrections": corrections,
         "stopped_reason": stopped_reason,
+        "messages": messages,  # the full conversation, for fine-tuning data (lora/collect.py)
         "elapsed_ms": round((time.perf_counter() - started) * 1000),
     }

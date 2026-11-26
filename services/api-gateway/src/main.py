@@ -704,6 +704,7 @@ class AgentRequest(BaseModel):
     question: str = Field(..., min_length=1)
     max_steps: int = Field(AGENT_MAX_STEPS, ge=1, le=12)
     model: Optional[str] = Field(None, description="Ollama 模型，預設用 OLLAMA_MODEL（方便比較不同模型）")
+    include_messages: bool = Field(False, description="回傳完整對話（收集 LoRA 訓練資料用）")
 
 
 class AgentStep(BaseModel):
@@ -720,6 +721,7 @@ class AgentResponse(BaseModel):
     checks: List[str] = []
     corrections: List[Dict[str, Any]] = []
     stopped_reason: str
+    messages: Optional[List[Dict[str, Any]]] = None
     elapsed_ms: int
 
 
@@ -776,7 +778,10 @@ def agent(request: AgentRequest):
         def chat(messages, tools):
             return ollama_chat(messages, tools, request.model)
 
-        return run_agent(request.question, chat, AGENT_TOOLS, max_steps=request.max_steps)
+        result = run_agent(request.question, chat, AGENT_TOOLS, max_steps=request.max_steps)
+        if not request.include_messages:
+            result["messages"] = None
+        return result
     except Exception as e:
         logger.exception("Agent failed")
         raise HTTPException(status_code=500, detail=str(e)) from e

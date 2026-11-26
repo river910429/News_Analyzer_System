@@ -51,6 +51,9 @@ ehthumbs.db
 *.tmp
 test.txt
 
-*.patch
+# LoRA stage: model weights and checkpoints (data/ is committed)
+lora/out/
 
 .venv*/
+*.patch
+*.zip

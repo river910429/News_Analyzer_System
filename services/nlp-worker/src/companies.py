@@ -19,9 +19,20 @@ COMPANIES: Dict[str, Tuple[str, ...]] = {
     "TSMC": ("台積電", "台積公司", "台灣積體電路", "TSMC", "2330"),
     "MediaTek": ("聯發科", "聯發科技", "MediaTek", "2454"),
     "UMC": ("聯電", "聯華電子", "UMC", "2303"),
+    # Training companies for the LoRA stage (lora/): the evaluation stays on the three above.
+    "ASE": ("日月光投控", "日月光", "ASE Technology", "3711"),
+    "Novatek": ("聯詠", "聯詠科技", "Novatek", "3034"),
+    "Realtek": ("瑞昱", "瑞昱半導體", "Realtek", "2379"),
 }
 
-DISPLAY_NAMES = {"TSMC": "台積電", "MediaTek": "聯發科", "UMC": "聯電"}
+DISPLAY_NAMES = {
+    "TSMC": "台積電",
+    "MediaTek": "聯發科",
+    "UMC": "聯電",
+    "ASE": "日月光投控",
+    "Novatek": "聯詠",
+    "Realtek": "瑞昱",
+}
 
 
 def _matches(text: str, alias: str) -> int:

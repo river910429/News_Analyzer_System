@@ -1,0 +1,82 @@
+# Stage C: distilling the 14B agent into 7B with QLoRA
+
+## Why
+
+With the same harness, qwen2.5:14b answers 12/14 multi-company questions and qwen2.5:7b 9/14
+(TSMC set: 11/12 both). The 7B errors left after three rounds of harness fixes are reading
+errors — a quarterly dividend taken for the annual one, the dividend per share taken for EPS,
+a global headcount given for one plant. Rules cannot catch those generally; the 14B model
+mostly does not make them. The goal: 14B behaviour at 7B speed (3.7 s vs 6.2 s per answer).
+
+## Method
+
+```
+annual reports of OTHER companies (ASE, Novatek, Realtek)
+   │  make_questions.py   teacher writes questions + expected answers from numeric passages
+   ▼
+questions.jsonl  (~250 answerable + 15 unanswerable)
+   │  collect.py          teacher (14B) answers through the real /agent harness
+   │                      keep only clean, correct trajectories (rejection sampling)
+   ▼
+train.jsonl / val.jsonl   full conversations: system prompt, tool calls, tool results, answer
+   │  train.py            QLoRA on Qwen2.5-7B-Instruct, loss on assistant turns only
+   ▼
+adapter ─ merge.py ─► merged fp16 ─ export.ps1 ─► Ollama qwen2.5-fin:7b (q4_K_M)
+   │
+   ▼
+eval/run_eval.py --model qwen2.5-fin:7b   on TSMC / MediaTek / UMC (never seen in training)
+```
+
+Design choices:
+
+- **Held-out companies.** Training data comes only from companies outside the evaluation
+  sets, so a gain means the model learned how to read reports, not these reports' answers.
+  `make_questions.py` refuses to run on TSMC, MediaTek or UMC.
+- **Trajectories, not Q&A pairs.** The student learns the whole loop — which searches to
+  issue, with which `company` argument, when to compute, when to stop — under the exact
+  system prompt, tool schemas and tool outputs it sees at inference.
+- **Rejection sampling.** A trajectory is kept only if the answer is right and the harness
+  fixed nothing (no critique, no arithmetic correction, no tool call recovered from text).
+  The student never imitates an error the harness had to repair.
+- **Loss on assistant turns only.** Tool results and the prompt are context, not targets.
+- **Same quantization as the baseline.** The merged model is imported as q4_K_M, like the
+  stock `qwen2.5:7b`, so 7B vs 7B-LoRA compares training, not precision.
+
+## Run
+
+Upload three training reports first (frontend or `/upload`), e.g. 日月光投控 (3711), 聯詠 (3034),
+瑞昱 (2379) 114年年報. File names containing the company name are tagged automatically.
+
+```powershell
+# 1. questions (teacher: qwen2.5:14b), ~15 min
+python lora/make_questions.py --api http://localhost:30080
+
+# 2. teacher trajectories through the harness, ~30 min
+python lora/collect.py --api http://localhost:30080 --model qwen2.5:14b
+
+# 3. free the GPU, build the training image, train (~1-2 h on a 16 GB GPU)
+ollama stop qwen2.5:14b; ollama stop qwen2.5:7b
+docker build -t rag-trainer lora
+docker run --rm --gpus all -v ${PWD}/lora:/work/lora -v hf-cache:/root/.cache/huggingface `
+    rag-trainer python lora/train.py
+
+# 4. merge on the CPU and import into Ollama
+docker run --rm -v ${PWD}/lora:/work/lora -v hf-cache:/root/.cache/huggingface `
+    rag-trainer python lora/merge.py
+powershell -ExecutionPolicy Bypass -File lora\export.ps1
+
+# 5. evaluate on the held-out companies
+python eval/run_eval.py --api http://localhost:30080 --qa eval/agent_qa_multidoc.jsonl --agent --model qwen2.5-fin:7b --tag lora-7b
+python eval/run_eval.py --api http://localhost:30080 --qa eval/agent_qa.jsonl --agent --model qwen2.5-fin:7b --tag lora-7b-tsmc
+```
+
+Out of memory in step 3: `--max-len 4096` (drops the longest conversations) or
+`--base Qwen/Qwen2.5-3B-Instruct` (then export with `-Base qwen2.5:3b -Name qwen2.5-fin:3b`).
+
+## Results
+
+| Model (same harness) | multi-company 14 | TSMC 12 | s / answer |
+|---|---|---|---|
+| qwen2.5:7b | 9/14 | 11/12 | 3.7 |
+| qwen2.5:14b (teacher) | 12/14 | 11/12 | 6.2 |
+| qwen2.5-fin:7b (QLoRA) | *pending* | *pending* | |
