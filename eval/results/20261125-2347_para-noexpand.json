@@ -1,0 +1,140 @@
+{
+  "tag": "para-noexpand",
+  "time": "20261125-2347",
+  "n": 18,
+  "summary": {
+    "hit@1": 0.444,
+    "hit@3": 0.5,
+    "hit@5": 0.556,
+    "hit@10": 0.722,
+    "mrr": 0.505
+  },
+  "rows": [
+    {
+      "id": "fin-01-p",
+      "question": "台積電去年總共賺進多少營收？",
+      "rank": 1,
+      "top1_score": 0.6916,
+      "retrieve_ms": 119
+    },
+    {
+      "id": "fin-03-p",
+      "question": "台積電今年淨賺多少錢？",
+      "rank": 5,
+      "top1_score": 0.638,
+      "retrieve_ms": 109
+    },
+    {
+      "id": "fin-04-p",
+      "question": "台積電EPS多少？",
+      "rank": 0,
+      "top1_score": 0.605,
+      "retrieve_ms": 117
+    },
+    {
+      "id": "fin-07-p",
+      "question": "台積電的毛利有多高？",
+      "rank": 7,
+      "top1_score": 0.6566,
+      "retrieve_ms": 100
+    },
+    {
+      "id": "fin-10-p",
+      "question": "台積電今年發多少股息？",
+      "rank": 9,
+      "top1_score": 0.6836,
+      "retrieve_ms": 114
+    },
+    {
+      "id": "tbl-04-p",
+      "question": "台積電合併報表的總資產有多少？",
+      "rank": 1,
+      "top1_score": 0.685,
+      "retrieve_ms": 125
+    },
+    {
+      "id": "tbl-05-p",
+      "question": "台積電合併報表的總負債是多少？",
+      "rank": 1,
+      "top1_score": 0.7062,
+      "retrieve_ms": 94
+    },
+    {
+      "id": "why-01-p",
+      "question": "台積電營收為什麼會成長？",
+      "rank": 0,
+      "top1_score": 0.6999,
+      "retrieve_ms": 106
+    },
+    {
+      "id": "ops-01-p",
+      "question": "台積電一年出貨幾片晶圓？",
+      "rank": 1,
+      "top1_score": 0.6972,
+      "retrieve_ms": 94
+    },
+    {
+      "id": "ops-03-p",
+      "question": "3nm 占營收多少比重？",
+      "rank": 0,
+      "top1_score": 0.4711,
+      "retrieve_ms": 129
+    },
+    {
+      "id": "tech-01-p",
+      "question": "N2 什麼時候開始量產？",
+      "rank": 2,
+      "top1_score": 0.5403,
+      "retrieve_ms": 123
+    },
+    {
+      "id": "risk-01-p",
+      "question": "台積電前十大客戶貢獻多少營收？",
+      "rank": 1,
+      "top1_score": 0.6609,
+      "retrieve_ms": 94
+    },
+    {
+      "id": "risk-02-p",
+      "question": "台積電最大的客戶貢獻幾成營收？",
+      "rank": 1,
+      "top1_score": 0.6662,
+      "retrieve_ms": 88
+    },
+    {
+      "id": "risk-03-p",
+      "question": "台幣升值1%對台積電獲利率有什麼影響？",
+      "rank": 1,
+      "top1_score": 0.6712,
+      "retrieve_ms": 101
+    },
+    {
+      "id": "esg-01-p",
+      "question": "台積電什麼時候要達成碳中和？",
+      "rank": 0,
+      "top1_score": 0.5649,
+      "retrieve_ms": 111
+    },
+    {
+      "id": "corp-02-p",
+      "question": "台積電股票代號是幾號？",
+      "rank": 1,
+      "top1_score": 0.6197,
+      "retrieve_ms": 103
+    },
+    {
+      "id": "corp-03-p",
+      "question": "台積電有多少員工？",
+      "rank": 7,
+      "top1_score": 0.6317,
+      "retrieve_ms": 139
+    },
+    {
+      "id": "corp-04-p",
+      "question": "台積電的企業文化價值觀是什麼？",
+      "rank": 0,
+      "top1_score": 0.6998,
+      "retrieve_ms": 118
+    }
+  ]
+}

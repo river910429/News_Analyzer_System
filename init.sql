@@ -13,8 +13,9 @@ CREATE TABLE IF NOT EXISTS documents (
 -- 建立向量表 (Chunks)
 CREATE TABLE IF NOT EXISTS document_chunks (
     id SERIAL PRIMARY KEY,
-    document_id INTEGER REFERENCES documents(id),
+    document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
     chunk_text TEXT NOT NULL,
     -- ⚠️ 關鍵修改：從 384 改成 1024 維
-    embedding vector(1024) 
+    embedding vector(1024),
+    page_number INTEGER
 );

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export default function Dashboard() {
     // === 原有的 State ===
@@ -12,6 +12,7 @@ export default function Dashboard() {
     // === [新增] 搜尋功能的 State ===
     const [query, setQuery] = useState('');
     const [searching, setSearching] = useState(false);
+    const [mode, setMode] = useState('rag'); // 'rag': streamed RAG answer, 'agent': tool-calling agent
     const [chatHistory, setChatHistory] = useState([
         { role: 'ai', text: '你好！我已經分析完文件了，有什麼我可以幫你的嗎？' }
     ]);
@@ -62,27 +63,77 @@ export default function Dashboard() {
 
         setChatHistory(prev => [...prev, { role: 'user', text: userQ }]);
 
+        if (mode === 'agent') {
+            try {
+                const res = await axios.post(`${API_URL}/agent`, { question: userQ });
+                const { answer, steps, critiques, elapsed_ms } = res.data;
+                setChatHistory(prev => [...prev, {
+                    role: 'ai',
+                    text: `${answer}\n\n⏱ ${(elapsed_ms / 1000).toFixed(1)}s ・ ${steps.length} 次工具呼叫`,
+                    steps,
+                    critiques,
+                }]);
+            } catch (err) {
+                console.error(err);
+                setChatHistory(prev => [...prev, { role: 'ai', text: "Agent 執行失敗，請確認 Ollama 是否已啟動。" }]);
+            } finally {
+                setSearching(false);
+            }
+            return;
+        }
+
         try {
-            const res = await axios.post(`${API_URL}/search`, {
-                query: userQ,
-                top_k: 3
+            // Stream the answer with Server-Sent Events: sources first, then tokens as they are generated.
+            const res = await fetch(`${API_URL}/search/stream`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: userQ, top_k: 5 }),
+            });
+            if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+
+            setChatHistory(prev => [...prev, { role: 'ai', text: '' }]);
+            const setLastAiText = (text) => setChatHistory(prev => {
+                const next = [...prev];
+                next[next.length - 1] = { role: 'ai', text };
+                return next;
             });
 
-            // 解構後端傳來的 ChatResponse
-            const { answer, sources } = res.data;
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let answer = '';
+            let sources = [];
 
-            let aiResponse = answer;
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
 
-            // 如果有參考來源，把它們折疊或附在下方
-            if (sources && sources.length > 0) {
-                const sourceText = sources.map((doc, idx) =>
-                    `[${idx + 1}] ${doc.filename} (相似度: ${(doc.similarity_score * 100).toFixed(1)}%)`
-                ).join('\n');
+                const events = buffer.split('\n\n');
+                buffer = events.pop(); // keep an incomplete event for the next read
+                for (const raw of events) {
+                    if (!raw.startsWith('data: ')) continue;
+                    const event = JSON.parse(raw.slice(6));
 
-                aiResponse += `\n\n---\n📑 參考來源：\n${sourceText}`;
+                    if (event.type === 'sources') {
+                        sources = event.sources;
+                    } else if (event.type === 'token') {
+                        answer += event.text;
+                        setLastAiText(answer);
+                    } else if (event.type === 'error') {
+                        answer += `\n\n⚠️ 生成中斷：${event.message}`;
+                        setLastAiText(answer);
+                    } else if (event.type === 'done') {
+                        const sourceText = sources.map((doc, idx) =>
+                            `[${idx + 1}] ${doc.filename}${doc.page ? ` 第 ${doc.page} 頁` : ''} (相似度: ${(doc.similarity_score * 100).toFixed(1)}%)`
+                        ).join('\n');
+                        const timing = `⏱ 首字 ${(event.ttft_ms / 1000).toFixed(1)}s ・ 完成 ${(event.total_ms / 1000).toFixed(1)}s`;
+                        setLastAiText(sources.length
+                            ? `${answer}\n\n---\n📑 參考來源：\n${sourceText}\n${timing}`
+                            : answer);
+                    }
+                }
             }
-
-            setChatHistory(prev => [...prev, { role: 'ai', text: aiResponse }]);
 
         } catch (err) {
             console.error(err);
@@ -162,18 +213,33 @@ export default function Dashboard() {
 
                             {/* 右邊：[新增] AI 對話視窗 */}
                             <div className="bg-white rounded-lg border border-gray-200 shadow-sm flex flex-col h-[600px]">
-                                <div className="p-4 border-b border-gray-200 bg-gray-50">
+                                <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
                                     <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide">
-                                        AI Assistant (RAG Search)
+                                        AI Assistant
                                     </h3>
+                                    <div className="flex text-xs border border-gray-300 rounded-lg overflow-hidden">
+                                        {[['rag', 'RAG 串流'], ['agent', 'Agent（多步驟）']].map(([value, label]) => (
+                                            <button
+                                                key={value}
+                                                onClick={() => setMode(value)}
+                                                className={`px-3 py-1 ${mode === value ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
+                                            >
+                                                {label}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
 
                                 {/* 聊天紀錄區 */}
                                 <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50">
                                     {chatHistory.map((msg, idx) => (
-                                        <ChatMessage key={idx} role={msg.role} text={msg.text} />
+                                        <ChatMessage key={idx} {...msg} />
                                     ))}
-                                    {searching && <div className="text-xs text-gray-400 text-center animate-pulse">Thinking...</div>}
+                                    {searching && (
+                                        <div className="text-xs text-gray-400 text-center animate-pulse">
+                                            {mode === 'agent' ? 'Agent 正在查資料與計算...' : 'Thinking...'}
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* 輸入框 */}
@@ -183,7 +249,7 @@ export default function Dashboard() {
                                         value={query}
                                         onChange={(e) => setQuery(e.target.value)}
                                         onKeyDown={handleSearch}
-                                        placeholder="輸入問題，例如：營收表現如何？"
+                                        placeholder={mode === 'agent' ? '例如：毛利率比前一年增加幾個百分點？' : '輸入問題，例如：營收表現如何？'}
                                         className="w-full pl-4 pr-10 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm shadow-sm"
                                     />
                                 </div>
@@ -198,15 +264,40 @@ export default function Dashboard() {
 }
 
 // === [新增] 聊天訊息元件 ===
-function ChatMessage({ role, text }) {
+function ChatMessage({ role, text, steps = [], critiques = [] }) {
     const isAi = role === 'ai';
     return (
         <div className={`flex ${isAi ? 'justify-start' : 'justify-end'}`}>
             <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm whitespace-pre-wrap ${isAi ? 'bg-white text-gray-800 border border-gray-200' : 'bg-blue-600 text-white'
                 }`}>
                 {text}
+                {steps.length > 0 && <AgentTrace steps={steps} critiques={critiques} />}
             </div>
         </div>
+    );
+}
+
+// Agent 的執行過程：每一次工具呼叫的參數與結果，以及 harness 退回重做的原因
+function AgentTrace({ steps, critiques }) {
+    const icons = { search_report: '🔍', get_page: '📄', calculator: '🧮' };
+    return (
+        <details className="mt-3 border-t border-gray-200 pt-2 text-xs text-gray-600">
+            <summary className="cursor-pointer select-none text-gray-500">查看執行過程（{steps.length} 步）</summary>
+            <div className="mt-2 space-y-2">
+                {steps.map((step, i) => (
+                    <div key={i} className="bg-gray-50 rounded p-2">
+                        <div className="font-medium text-gray-700">
+                            {i + 1}. {icons[step.tool] || '🔧'} {step.tool}
+                            <span className="font-mono text-gray-500"> {JSON.stringify(step.arguments)}</span>
+                        </div>
+                        <div className="mt-1 text-gray-500">{step.result.slice(0, 300)}{step.result.length > 300 ? '…' : ''}</div>
+                    </div>
+                ))}
+                {critiques.map((c, i) => (
+                    <div key={`c${i}`} className="bg-amber-50 text-amber-800 rounded p-2">↩ 自我檢查退回：{c}</div>
+                ))}
+            </div>
+        </details>
     );
 }
 

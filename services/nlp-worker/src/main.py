@@ -1,129 +1,195 @@
-import redis
-import json
-import os
-import psycopg2
-import boto3
+"""ETL worker: pull tasks from Redis, parse PDFs, chunk, embed, store in pgvector."""
+
 import io
-import traceback
+import json
+import logging
+import os
+import signal
+import time
+from typing import List
+
+import boto3
+import psycopg2
+import redis
+from psycopg2.extras import execute_values
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 
-# 初始化模型 (這會花一點時間下載)
-print("Loading Embedding Model...")
-model = SentenceTransformer('BAAI/bge-m3')
-print("Model Loaded!")
+from chunking import chunk_pages
+from companies import document_company
+from indexing import SCHEMA_SQL, write_postings
+from tables import extract_table_chunks
 
-redis_client = redis.Redis(host=os.getenv("REDIS_HOST"), port=6379, db=0)
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("nlp-worker")
+
+# ----- Configuration (all from environment, see .env.example) -----
+REDIS_HOST = os.getenv("REDIS_HOST", "redis-queue")
+DB_HOST = os.getenv("DB_HOST", "db")
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
+MINIO_BUCKET = os.getenv("MINIO_BUCKET", "documents")
+# Must be the same model the api-gateway uses.
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "500"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))
+ETL_QUEUE = "etl_queue"
+
+logger.info("Loading embedding model %s ...", EMBEDDING_MODEL)
+model = SentenceTransformer(EMBEDDING_MODEL)
+logger.info("Embedding model loaded")
+
+redis_client = redis.Redis(host=REDIS_HOST, port=6379, db=0, health_check_interval=30)
+
 
 def get_db_connection():
     return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        database=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD")
+        host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD
     )
+
 
 def get_s3_client():
     return boto3.client(
-        's3',
-        endpoint_url=f"http://{os.getenv('MINIO_ENDPOINT')}",
-        aws_access_key_id=os.getenv("MINIO_ACCESS_KEY"),
-        aws_secret_access_key=os.getenv("MINIO_SECRET_KEY")
+        "s3",
+        endpoint_url=f"http://{MINIO_ENDPOINT}",
+        aws_access_key_id=MINIO_ACCESS_KEY,
+        aws_secret_access_key=MINIO_SECRET_KEY,
     )
 
-def process_etl():
-    while True:
-        # 監聽 etl_queue
-        item = redis_client.brpop("etl_queue", timeout=0)
-        if item:
-            task = json.loads(item[1])
-            doc_id = task['doc_id']
-            s3_key = task['s3_key']
-            
-            print(f"Processing Document ID: {doc_id}...")
-            
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            s3 = get_s3_client()
-            bucket = os.getenv("MINIO_BUCKET")
-            print(f"🚀 [Start] Processing Document ID: {doc_id}...")
 
-            try:
-                # 更新狀態為 processing
-                cursor.execute("UPDATE documents SET status = 'processing' WHERE id = %s", (doc_id,))
-                conn.commit()
+def extract_pages(pdf_bytes: bytes) -> List[str]:
+    """Extract text per page. Raises ValueError if nothing readable is found."""
+    pdf = PdfReader(io.BytesIO(pdf_bytes))
+    if pdf.is_encrypted:
+        logger.warning("PDF is encrypted, trying empty password")
+        pdf.decrypt("")
 
-                # 1. 下載
-                print(f"   Downloading S3 Key: {s3_key}")
-                obj = s3.get_object(Bucket=bucket, Key=s3_key)
-                file_stream = io.BytesIO(obj['Body'].read())
+    pages = []
+    for i, page in enumerate(pdf.pages, start=1):
+        text = page.extract_text() or ""
+        if not text.strip():
+            logger.warning("Page %d has no extractable text (image-only?)", i)
+        pages.append(text)  # keep empty pages so page numbers stay correct
 
-                # 2. 解析 PDF
-                text_content = ""
-                try:
-                    print("   Parsing PDF...")
-                    pdf = PdfReader(file_stream)
-                    # 檢查是否加密
-                    if pdf.is_encrypted:
-                        print("   ⚠️ PDF is encrypted! Trying to decrypt...")
-                        try:
-                            pdf.decrypt("") # 嘗試空密碼
-                        except:
-                            raise Exception("PDF Encrypted and cannot be read.")
-                            
-                    for i, page in enumerate(pdf.pages):
-                        extracted = page.extract_text()
-                        if extracted:
-                            text_content += extracted + "\n"
-                        else:
-                            print(f"   ⚠️ Page {i} extracted empty text (might be image-only PDF)")
+    if not any(p.strip() for p in pages):
+        raise ValueError("Extracted text is empty (image-only or empty PDF)")
+    return pages
 
-                except Exception as pdf_err:
-                    print(f"   ❌ PDF Parse Error: {pdf_err}")
-                    # 備案：如果是純文字檔誤傳為 PDF，試著用 utf-8 硬讀
-                    file_stream.seek(0)
-                    text_content = file_stream.read().decode('utf-8', errors='ignore')
 
-                if not text_content.strip():
-                    raise Exception("Extracted text is empty! (File might be image-only PDF or empty)")
+def ensure_schema() -> None:
+    """Idempotent migration for databases created before page numbers existed."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(SCHEMA_SQL)
+        conn.commit()
+    finally:
+        conn.close()
 
-                print(f"   ✅ Extracted {len(text_content)} chars.")
 
-                # 3. 切分文字 (Chunking) 
-                # 簡單切分：每 500 字切一塊，重疊 50 字 (這比單純換行切分更好)
-                chunk_size = 500
-                overlap = 50
-                chunks = []
-                for i in range(0, len(text_content), chunk_size - overlap):
-                    chunk = text_content[i:i + chunk_size]
-                    if len(chunk) > 50: # 太短的不要
-                        chunks.append(chunk)
-                
-                print(f"切分成 {len(chunks)} 個區塊，開始向量化...")
+def set_status(conn, doc_id: int, status: str) -> None:
+    with conn.cursor() as cursor:
+        cursor.execute("UPDATE documents SET status = %s WHERE id = %s", (status, doc_id))
+    conn.commit()
 
-                # 4. 向量化 (Embedding)
-                if chunks:
-                    embeddings = model.encode(chunks)
-                    
-                    # 5. 存入 pgvector
-                    for text, vector in zip(chunks, embeddings):
-                        cursor.execute(
-                            "INSERT INTO document_chunks (document_id, chunk_text, embedding) VALUES (%s, %s, %s)",
-                            (doc_id, text, vector.tolist())
-                        )
-                
-                # 更新狀態為 completed
-                cursor.execute("UPDATE documents SET status = 'completed' WHERE id = %s", (doc_id,))
-                conn.commit()
-                print(f"Document {doc_id} processed successfully.")
 
-            except Exception as e:
-                print(f"Error: {e}")
-                cursor.execute("UPDATE documents SET status = 'failed' WHERE id = %s", (doc_id,))
-                conn.commit()
-            finally:
-                cursor.close()
-                conn.close()
+def process_document(conn, s3, doc_id: int, s3_key: str) -> None:
+    set_status(conn, doc_id, "processing")
+
+    obj = s3.get_object(Bucket=MINIO_BUCKET, Key=s3_key)
+    pdf_bytes = obj["Body"].read()
+    pages = extract_pages(pdf_bytes)
+    logger.info("Doc %s: extracted %d pages", doc_id, len(pages))
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT filename FROM documents WHERE id = %s", (doc_id,))
+        filename = cursor.fetchone()[0]
+    company = document_company(filename, "\n".join(pages[:5]))
+    logger.info("Doc %s: company %s", doc_id, company)
+
+    chunks = chunk_pages(pages, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)
+    table_chunks = extract_table_chunks(pdf_bytes)
+    chunks += table_chunks
+    logger.info("Doc %s: %d chunks (%d table chunks), embedding...", doc_id, len(chunks), len(table_chunks))
+    texts = [text for _, text in chunks]
+    embeddings = model.encode(texts, batch_size=16, normalize_embeddings=True) if texts else []
+
+    # Old chunks are replaced and the new ones committed together with the 'completed'
+    # status in one transaction: re-indexing is safe, and a failure never leaves
+    # half a document searchable.
+    with conn.cursor() as cursor:
+        cursor.execute("DELETE FROM document_chunks WHERE document_id = %s", (doc_id,))
+        inserted = execute_values(
+            cursor,
+            "INSERT INTO document_chunks (document_id, page_number, chunk_text, embedding) VALUES %s RETURNING id",
+            [(doc_id, page, text, vec.tolist()) for (page, text), vec in zip(chunks, embeddings, strict=True)],
+            fetch=True,
+        )
+        n_postings = write_postings(cursor, [row[0] for row in inserted], texts)
+        cursor.execute("UPDATE documents SET status = 'completed', company = %s WHERE id = %s", (company, doc_id))
+    conn.commit()
+    logger.info("Doc %s: %d postings in the inverted index", doc_id, n_postings)
+    logger.info("Doc %s: completed", doc_id)
+
+
+def handle_task(raw: bytes) -> None:
+    task = json.loads(raw)
+    doc_id = task["doc_id"]
+    logger.info("Processing document %s (%s)", doc_id, task.get("filename"))
+
+    conn = get_db_connection()
+    try:
+        process_document(conn, get_s3_client(), doc_id, task["s3_key"])
+    except Exception:
+        logger.exception("Doc %s: failed", doc_id)
+        conn.rollback()  # discard any partially inserted chunks
+        try:
+            set_status(conn, doc_id, "failed")
+        except Exception:
+            logger.exception("Doc %s: could not mark as failed", doc_id)
+    finally:
+        conn.close()
+
+
+_stopping = False
+
+
+def _request_stop(signum, _frame) -> None:
+    """On SIGTERM (Kubernetes scale-in, docker stop) finish the current document, then exit."""
+    global _stopping
+    _stopping = True
+    logger.info("Received signal %s: finishing the current task, then exiting", signum)
+
+
+def main() -> None:
+    signal.signal(signal.SIGTERM, _request_stop)
+    signal.signal(signal.SIGINT, _request_stop)
+    ensure_schema()
+    logger.info("Worker listening on queue '%s'", ETL_QUEUE)
+    while not _stopping:
+        try:
+            # Wake up every 5 s instead of blocking forever, so an idle connection
+            # never hits a socket timeout.
+            item = redis_client.brpop(ETL_QUEUE, timeout=5)
+            if item is None:
+                continue
+            handle_task(item[1])
+        except (redis.exceptions.TimeoutError, redis.exceptions.ConnectionError) as e:
+            # An idle Redis connection can time out; redis-py reconnects on the next call.
+            logger.warning("Redis connection issue (%s), retrying", e.__class__.__name__)
+            time.sleep(2)
+        except Exception:
+            # Keep the worker alive on unexpected errors (e.g. Redis/DB briefly down).
+            logger.exception("Unexpected error in worker loop")
+            time.sleep(2)
+    logger.info("Worker stopped")
+
 
 if __name__ == "__main__":
-    process_etl()
+    main()

@@ -1,0 +1,129 @@
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lora"))
+
+from sft_format import build_example, to_hf_messages  # noqa: E402
+
+
+class ChatMLTokenizer:
+    """Stand-in for the Qwen2.5 tokenizer: ChatML template, one token per character."""
+
+    def apply_chat_template(self, msgs, tools=None, tokenize=False, add_generation_prompt=False):
+        out = ""
+        if tools:
+            out += "<|im_start|>system\n<tools>" + json.dumps(tools) + "</tools><|im_end|>\n"
+        for m in msgs:
+            body = m.get("content", "")
+            for c in m.get("tool_calls", []):
+                body += "<tool_call>" + json.dumps(c["function"], ensure_ascii=False) + "</tool_call>"
+            out += f"<|im_start|>{m['role']}\n{body}<|im_end|>\n"
+        if add_generation_prompt:
+            out += "<|im_start|>assistant\n"
+        return out
+
+    def __call__(self, text, return_offsets_mapping=False, add_special_tokens=False):
+        return {"input_ids": [ord(c) for c in text], "offset_mapping": [(i, i + 1) for i in range(len(text))]}
+
+
+OLLAMA_CONVERSATION = [
+    {"role": "system", "content": "你是財報分析助理"},
+    {"role": "user", "content": "瑞昱114年毛利率？"},
+    {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"function": {"name": "search_report", "arguments": {"query": "毛利率"}}}],
+    },
+    {"role": "tool", "tool_name": "search_report", "content": "毛利率48.2%"},
+    {"role": "assistant", "content": "48.2%（來源：第 5 頁）"},
+]
+
+
+def test_to_hf_messages():
+    hf = to_hf_messages(OLLAMA_CONVERSATION)
+    assert hf[2]["tool_calls"][0] == {
+        "type": "function",
+        "function": {"name": "search_report", "arguments": {"query": "毛利率"}},
+    }
+    assert hf[3] == {"role": "tool", "name": "search_report", "content": "毛利率48.2%"}
+    assert "tool_calls" not in hf[4]
+    # arguments given as a JSON string are parsed
+    raw = [
+        {
+            "role": "assistant",
+            "tool_calls": [{"function": {"name": "calculator", "arguments": '{"expression": "1+1"}'}}],
+        }
+    ]
+    assert to_hf_messages(raw)[0]["tool_calls"][0]["function"]["arguments"] == {"expression": "1+1"}
+
+
+def test_loss_only_on_assistant_turns():
+    tok = ChatMLTokenizer()
+    ex = build_example(tok, to_hf_messages(OLLAMA_CONVERSATION), tools=[{"name": "search_report"}], max_len=10_000)
+    trained = "".join(chr(t) for t, label in zip(ex["input_ids"], ex["labels"], strict=True) if label != -100)
+    assert '<tool_call>{"name": "search_report"' in trained
+    assert "48.2%（來源：第 5 頁）<|im_end|>" in trained
+    # the prompt, the question and the tool result are context only
+    for context in ("你是財報分析助理", "瑞昱114年毛利率", "<tools>", "毛利率48.2%<|im_end|>"):
+        assert context not in trained
+
+
+def test_too_long_examples_are_dropped():
+    assert build_example(ChatMLTokenizer(), to_hf_messages(OLLAMA_CONVERSATION), None, max_len=20) is None
+
+
+def test_collect_keeps_only_clean_correct_trajectories():
+    from collect import rejection_reason
+
+    good = {
+        "stopped_reason": "answered",
+        "critiques": [],
+        "corrections": [],
+        "steps": [{"tool": "search_report"}],
+        "answer": "毛利率為48.2%（來源：第 5 頁）",
+    }
+    item = {"answer": "48.2", "type": "lookup"}
+    assert rejection_reason(item, good) == ""
+    assert rejection_reason(item, good | {"answer": "毛利率為47.9%"}) == "wrong_answer"
+    assert rejection_reason(item, good | {"critiques": ["…"], "checks": ["early_refusal"]}) == ""  # repaired
+    assert rejection_reason(item, good | {"stopped_reason": "guardrail:derived"}) == "stopped:guardrail:derived"
+    assert rejection_reason(item, good | {"corrections": [{"claimed": "1"}]}) == "arithmetic_fixed"
+    assert rejection_reason(item, good | {"steps": [{"tool": "search_report", "recovered": True}]}) == "text_tool_call"
+    assert rejection_reason(item, good | {"steps": [{"tool": "calculator"}]}) == "no_search"
+    unanswerable = {"type": "unanswerable"}
+    assert rejection_reason(unanswerable, good | {"answer": "根據目前的文件，無法得知此資訊"}) == ""
+    assert rejection_reason(unanswerable, good) == "wrong_answer"
+
+
+def test_lookup_answers_must_come_from_the_passage():
+    from make_questions import number_in
+
+    passage = "毛利率為48.2%，營業收入 1,234,567 千元"
+    assert number_in("48.2", passage) and number_in("1,234,567", passage)
+    assert not number_in("48.3", passage)
+    assert not number_in("234", passage)  # not a piece of a longer number
+
+
+def test_repair_removes_draft_and_critique_pairs():
+    from collect import repair_messages
+
+    search = {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "search_report"}}]}
+    result = {"role": "tool", "tool_name": "search_report", "content": "…"}
+    critique = "你只查了一次就說查不到。請換個關鍵字再查一次"
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "瑞昱114年廢棄物總重量？"},
+        search,
+        result,
+        {"role": "assistant", "content": "根據目前的文件，無法得知此資訊。"},
+        {"role": "user", "content": critique},
+        search,
+        result,
+        {"role": "assistant", "content": "1,234 公噸（來源：第 80 頁）"},
+    ]
+    repaired = repair_messages(messages, [critique])
+    assert [m["role"] for m in repaired] == ["system", "user", "assistant", "tool", "assistant", "tool", "assistant"]
+    assert "無法得知" not in str(repaired) and critique not in str(repaired)
+    # the question itself is a user message too, and stays
+    assert repair_messages(messages[:4], []) == messages[:4]

@@ -1,0 +1,33 @@
+# Persistent volumes (Docker Desktop provides a hostpath storage class by default).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Hugging Face model cache shared by the API and every worker pod, so a new worker
+# loads bge-m3 from disk instead of downloading 2 GB. ReadWriteOnce is enough on a
+# single-node cluster; a multi-node cluster would need ReadWriteMany (e.g. NFS).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hf-cache
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi

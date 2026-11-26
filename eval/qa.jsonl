@@ -1,0 +1,46 @@
+// 2025 TSMC Annual Report.C.pdf 評估題庫。keywords 皆已用 pypdf 抽出的文字逐一驗證（忽略空白）。
+// type: number=文中數字, table=財務報表表格, text=敘述/原因/日期
+// 11 題原本沒寫公司名稱（只有一份文件時不需要），多文件後已在題目前加上「台積公司」；原題保留在 single_doc_question。
+{"id": "fin-01", "doc": "TSMC", "type": "number", "question": "台積公司民國114年全年合併營收是多少？", "keywords": ["3兆8,090億5,000萬"]}
+{"id": "fin-02", "doc": "TSMC", "type": "number", "question": "台積公司114年合併營收較前一年成長多少百分比？", "keywords": ["3兆8,090億5,000萬", "31.6%"], "answer_keywords": ["31.6%"]}
+{"id": "fin-03", "doc": "TSMC", "type": "number", "question": "台積公司114年稅後淨利是多少？", "keywords": ["1兆7,178億8,000萬"]}
+{"id": "fin-04", "doc": "TSMC", "type": "number", "question": "台積公司114年每股盈餘（EPS）是多少？", "keywords": ["每股盈餘為新台幣66.25元"], "answer_keywords": ["66.25"]}
+{"id": "fin-05", "doc": "TSMC", "type": "number", "question": "以美元計算，台積公司114年全年合併營收是多少？", "keywords": ["1,224億2,000萬美元"]}
+{"id": "fin-06", "doc": "TSMC", "type": "number", "question": "若以美元計，台積公司114年營收年增率是多少？", "keywords": ["營收年增35.9%"], "answer_keywords": ["35.9%"]}
+{"id": "fin-07", "doc": "TSMC", "type": "number", "question": "台積公司114年的毛利率是多少？", "keywords": ["毛利率為59.9%"], "answer_keywords": ["59.9%"]}
+{"id": "fin-08", "doc": "TSMC", "type": "number", "question": "台積公司114年的營業利益率是多少？", "keywords": ["營業利益率為50.8%"], "answer_keywords": ["50.8%"]}
+{"id": "fin-09", "doc": "TSMC", "type": "number", "question": "台積公司114年的稅後純益率是多少？", "keywords": ["稅後純益率為45.1%"], "answer_keywords": ["45.1%"]}
+{"id": "fin-10", "doc": "TSMC", "type": "number", "question": "台積公司114年每股現金股利配發多少？", "keywords": ["每股新台幣18.0元"], "answer_keywords": ["18.0"]}
+{"id": "tbl-01", "doc": "TSMC", "type": "table", "question": "台積公司合併損益表中，114年營業收入淨額是多少新台幣仟元？前一年是多少？", "keywords": ["3,809,054,272", "2,894,307,699"], "answer_keywords": ["3,809,054,272", "2,894,307,699"], "single_doc_question": "合併損益表中，114年營業收入淨額是多少新台幣仟元？前一年是多少？"}
+{"id": "tbl-02", "doc": "TSMC", "type": "table", "question": "台積公司個體（非合併）財務報表中，114年營業收入淨額是多少新台幣仟元？", "keywords": ["3,784,388,760"], "single_doc_question": "個體（非合併）財務報表中，114年營業收入淨額是多少新台幣仟元？"}
+{"id": "tbl-03", "doc": "TSMC", "type": "table", "question": "台積公司合併損益表中114年營業毛利是多少新台幣仟元？", "keywords": ["營業毛利2,281,293,979"], "answer_keywords": ["2,281,293,979"], "single_doc_question": "合併損益表中114年營業毛利是多少新台幣仟元？"}
+{"id": "tbl-04", "doc": "TSMC", "type": "table", "question": "台積公司合併資產負債表中114年資產總額是多少新台幣仟元？", "keywords": ["資產總額7,933,023,878"], "answer_keywords": ["7,933,023,878"], "single_doc_question": "合併資產負債表中114年資產總額是多少新台幣仟元？"}
+{"id": "tbl-05", "doc": "TSMC", "type": "table", "question": "台積公司合併資產負債表中114年負債總額是多少新台幣仟元？", "keywords": ["負債總額2,472,228,595"], "answer_keywords": ["2,472,228,595"], "single_doc_question": "合併資產負債表中114年負債總額是多少新台幣仟元？"}
+{"id": "tbl-06", "doc": "TSMC", "type": "number", "question": "台積公司114年合併營業活動之現金流入約多少？", "keywords": ["營業活動之現金流入約22,750億"], "answer_keywords": ["22,750"]}
+{"id": "why-01", "doc": "TSMC", "type": "text", "question": "台積公司114年營業收入淨額增加的主要原因是什麼？", "keywords": ["營業收入淨額增加：主要係本年度平均銷售單價提高及晶圓出貨量增加"], "answer_keywords": ["平均銷售單價", "出貨量"], "single_doc_question": "114年營業收入淨額增加的主要原因是什麼？"}
+{"id": "why-02", "doc": "TSMC", "type": "text", "question": "台積公司114年營業費用增加的主要原因是什麼？", "keywords": ["營業費用增加：主要係研究發展費用增加所致"], "answer_keywords": ["研究發展費用"], "single_doc_question": "114年營業費用增加的主要原因是什麼？"}
+{"id": "ops-01", "doc": "TSMC", "type": "number", "question": "台積公司114年晶圓出貨量是多少？", "keywords": ["1,500萬片十二吋晶圓約當量"], "answer_keywords": ["1,500萬"]}
+{"id": "ops-02", "doc": "TSMC", "type": "number", "question": "台積公司114年7奈米及以下先進製程占整體晶圓銷售金額的比例是多少？", "keywords": ["整體晶圓銷售金額的74%"], "answer_keywords": ["74%"], "single_doc_question": "114年7奈米及以下先進製程占整體晶圓銷售金額的比例是多少？"}
+{"id": "ops-03", "doc": "TSMC", "type": "number", "question": "3奈米製程占台積公司114年整體晶圓銷售金額多少？", "keywords": ["整體晶圓銷售金額的24%"], "answer_keywords": ["24%"]}
+{"id": "ops-04", "doc": "TSMC", "type": "number", "question": "台積公司114年提供多少種製程技術、為多少客戶生產？", "keywords": ["305種", "534個客戶"], "answer_keywords": ["305", "534"]}
+{"id": "ops-05", "doc": "TSMC", "type": "number", "question": "114年台積公司及子公司擁有及管理的年產能是多少？", "keywords": ["年產能超過1,700萬片十二吋晶圓約當量"], "answer_keywords": ["1,700萬"]}
+{"id": "ops-06", "doc": "TSMC", "type": "number", "question": "基於114年的資本支出，台積公司產能約增加多少？", "keywords": ["產能約增加50萬片"], "answer_keywords": ["50萬片"]}
+{"id": "tech-01", "doc": "TSMC", "type": "text", "question": "台積公司2奈米製程何時進入量產？", "keywords": ["2奈米製程技術於民國一百一十四年第四季成功進入量產"], "answer_keywords": ["第四季"]}
+{"id": "tech-02", "doc": "TSMC", "type": "text", "question": "台積公司A14技術預計何時量產？", "keywords": ["A14的開發進展順利", "預計於民國一百一十七年量產"], "answer_keywords": ["一百一十七年"], "single_doc_question": "A14技術預計何時量產？"}
+{"id": "tech-03", "doc": "TSMC", "type": "text", "question": "台積公司四座十二吋超大晶圓廠分別是哪幾座？", "keywords": ["晶圓十二廠、晶圓十四廠、晶圓十五廠及晶圓十八廠"], "answer_keywords": ["晶圓十八廠"]}
+{"id": "tech-04", "doc": "TSMC", "type": "number", "question": "台積公司開放創新平台生態系統連結了多少個電子設計自動化夥伴？", "keywords": ["13個電子設計自動化夥伴"], "answer_keywords": ["13"], "single_doc_question": "開放創新平台生態系統連結了多少個電子設計自動化夥伴？"}
+{"id": "tech-05", "doc": "TSMC", "type": "number", "question": "台積公司預估115年總研發預算約占全年營收的多少？", "keywords": ["約占民國一百一十五年全年營收的7%"], "answer_keywords": ["7%"]}
+{"id": "glob-01", "doc": "TSMC", "type": "text", "question": "台積公司亞利桑那州第二座晶圓廠預計何時量產？", "keywords": ["第二座晶圓廠的生產計劃", "民國一百一十六年下半年"], "answer_keywords": ["一百一十六年下半年"], "single_doc_question": "亞利桑那州第二座晶圓廠預計何時量產？"}
+{"id": "mkt-01", "doc": "TSMC", "type": "number", "question": "台積公司估計114年積體電路製造2.0產業規模是多少？", "keywords": ["3,053億美元"]}
+{"id": "mkt-02", "doc": "TSMC", "type": "number", "question": "台積公司估計114年全球半導體（不含記憶體）市場產值是多少？", "keywords": ["6,105億美元"]}
+{"id": "risk-01", "doc": "TSMC", "type": "number", "question": "114年前十大客戶占台積公司營業收入淨額的比例是多少？", "keywords": ["前十大客戶的營業收入淨額", "78%"], "answer_keywords": ["78%"]}
+{"id": "risk-02", "doc": "TSMC", "type": "number", "question": "台積公司最大客戶占114年營業收入淨額多少？", "keywords": ["最大客戶", "25%、22%及19%"], "answer_keywords": ["19%"]}
+{"id": "risk-03", "doc": "TSMC", "type": "number", "question": "美元對新台幣貶值1個百分點，對台積公司營業利益率影響多少？", "keywords": ["美元對新台幣每貶值1個百分點", "營業利益率下降0.3個百分點"], "answer_keywords": ["0.3"]}
+{"id": "risk-04", "doc": "TSMC", "type": "text", "question": "台積公司的風險管理系統依循哪個國際標準？", "keywords": ["31000:2018"], "answer_keywords": ["31000"]}
+{"id": "esg-01", "doc": "TSMC", "type": "text", "question": "台積公司預計何時實現淨零排放？", "keywords": ["民國一百三十九年實現淨零排放"], "answer_keywords": ["一百三十九年"]}
+{"id": "esg-02", "doc": "TSMC", "type": "text", "question": "台積公司預計何時達成100%使用再生能源？", "keywords": ["民國一百二十九年達成100%使用再生能源"], "answer_keywords": ["一百二十九年"]}
+{"id": "corp-01", "doc": "TSMC", "type": "text", "question": "台積公司成立於哪一年？", "keywords": ["台積公司成立於民國七十六年"], "answer_keywords": ["七十六年"]}
+{"id": "corp-02", "doc": "TSMC", "type": "text", "question": "台積公司的台股股票代碼是多少？", "keywords": ["股票代碼為2330"], "answer_keywords": ["2330"]}
+{"id": "corp-03", "doc": "TSMC", "type": "number", "question": "截至114年底台積公司全球員工總數是多少？", "keywords": ["9萬557人"]}
+{"id": "corp-04", "doc": "TSMC", "type": "text", "question": "台積公司的核心價值是什麼？", "keywords": ["誠信正直、承諾、創新和客戶信任"], "answer_keywords": ["誠信正直", "客戶信任"]}
+{"id": "corp-05", "doc": "TSMC", "type": "number", "question": "台積公司tFlex彈性福利計劃提供台灣員工多少點數？", "keywords": ["tFlex", "新台幣8,000元"], "answer_keywords": ["8,000"]}
