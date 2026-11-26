@@ -147,6 +147,7 @@ def main() -> None:
         "--rerank", action="store_true", help="re-rank with the cross-encoder (first call downloads the model)"
     )
     parser.add_argument("--no-expand", action="store_true", help="turn off BM25 synonym expansion")
+    parser.add_argument("--no-company-filter", action="store_true", help="search all documents (no company NER)")
     parser.add_argument("--timeout", type=float, default=600, help="seconds to wait for each request")
     parser.add_argument("--tag", help="name of this run (default: the mode)")
     parser.add_argument("--model", help="Ollama model for /agent, e.g. qwen3:8b (default: server setting)")
@@ -161,7 +162,10 @@ def main() -> None:
     default_tag = (
         "agent"
         if args.agent
-        else (args.mode or "default") + ("-rerank" if args.rerank else "") + ("-noexpand" if args.no_expand else "")
+        else (args.mode or "default")
+        + ("-rerank" if args.rerank else "")
+        + ("-noexpand" if args.no_expand else "")
+        + ("-nofilter" if args.no_company_filter else "")
     )
     args.tag = args.tag or default_tag
     qa = load_qa(Path(args.qa))
@@ -183,6 +187,7 @@ def main() -> None:
                     "mode": args.mode,
                     "rerank": args.rerank or None,
                     "expand": False if args.no_expand else None,
+                    "company_filter": not args.no_company_filter,
                 },
                 args.timeout,
             )

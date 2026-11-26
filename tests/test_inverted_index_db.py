@@ -72,3 +72,24 @@ def test_deleting_a_document_removes_its_postings(db):
     cur.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
     cur.execute("SELECT count(*) FROM postings")
     assert cur.fetchone()[0] == 0
+
+
+def test_bm25_document_filter(db):
+    from psycopg2.extras import execute_values
+
+    from indexing import write_postings
+    from src.main import bm25_search
+
+    cur, ids, doc_id = db
+    cur.execute("INSERT INTO documents (filename, company) VALUES ('UMC.pdf', 'UMC') RETURNING id")
+    other = cur.fetchone()[0]
+    [(other_chunk,)] = execute_values(
+        cur,
+        "INSERT INTO document_chunks (document_id, chunk_text) VALUES %s RETURNING id",
+        [(other, "聯電毛利率為29.0%")],
+        fetch=True,
+    )
+    write_postings(cur, [other_chunk], ["聯電毛利率為29.0%"])
+    assert other_chunk in bm25_search(cur, "毛利率", 10)
+    assert bm25_search(cur, "毛利率", 10, [other]) == [other_chunk]
+    assert other_chunk not in bm25_search(cur, "毛利率", 10, [doc_id])

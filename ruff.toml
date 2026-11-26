@@ -6,7 +6,7 @@ select = ["E", "F", "W", "I", "B"]
 ignore = ["B008"]
 
 [lint.isort]
-known-first-party = ["chunking", "tables", "tokenizer", "indexing", "src", "run_eval"]
+known-first-party = ["chunking", "companies", "tables", "tokenizer", "indexing", "src", "run_eval"]
 
 [lint.per-file-ignores]
 # eval scripts run on the host, which may have Python < 3.10 (no zip(strict=))

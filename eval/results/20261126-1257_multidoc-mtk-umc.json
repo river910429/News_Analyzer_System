@@ -1,0 +1,308 @@
+{
+  "tag": "multidoc-mtk-umc",
+  "time": "20261126-1257",
+  "n": 42,
+  "summary": {
+    "hit@1": 0.643,
+    "hit@3": 0.833,
+    "hit@5": 0.929,
+    "hit@10": 1.0,
+    "mrr": 0.762
+  },
+  "rows": [
+    {
+      "id": "mtk-01",
+      "question": "聯發科114年的全年營收是多少？",
+      "rank": 2,
+      "top1_score": 0.5844,
+      "retrieve_ms": 104
+    },
+    {
+      "id": "mtk-02",
+      "question": "聯發科114年營收較113年成長多少百分比？",
+      "rank": 2,
+      "top1_score": 0.553,
+      "retrieve_ms": 113
+    },
+    {
+      "id": "mtk-03",
+      "question": "聯發科114年的毛利率是多少？",
+      "rank": 1,
+      "top1_score": 0.6467,
+      "retrieve_ms": 107
+    },
+    {
+      "id": "mtk-04",
+      "question": "聯發科114年的營業利益率是多少？",
+      "rank": 1,
+      "top1_score": 0.68,
+      "retrieve_ms": 93
+    },
+    {
+      "id": "mtk-05",
+      "question": "聯發科114年每股盈餘是多少？",
+      "rank": 1,
+      "top1_score": 0.6597,
+      "retrieve_ms": 100
+    },
+    {
+      "id": "mtk-06",
+      "question": "聯發科114年總計配發每股多少現金股利？",
+      "rank": 1,
+      "top1_score": 0.6174,
+      "retrieve_ms": 131
+    },
+    {
+      "id": "mtk-07",
+      "question": "聯發科天璣9500採用幾奈米製程？",
+      "rank": 1,
+      "top1_score": 0.5912,
+      "retrieve_ms": 107
+    },
+    {
+      "id": "mtk-08",
+      "question": "聯發科114年旗艦晶片貢獻多少營收？",
+      "rank": 1,
+      "top1_score": 0.6532,
+      "retrieve_ms": 120
+    },
+    {
+      "id": "mtk-09",
+      "question": "聯發科與NVIDIA合作設計的超級晶片叫什麼？",
+      "rank": 1,
+      "top1_score": 0.6,
+      "retrieve_ms": 127
+    },
+    {
+      "id": "mtk-10",
+      "question": "聯發科與哪一家汽車零組件供應商合作開發先進駕駛輔助系統晶片？",
+      "rank": 1,
+      "top1_score": 0.664,
+      "retrieve_ms": 124
+    },
+    {
+      "id": "mtk-11",
+      "question": "聯發科預計何年達成全球集團辦公室全面使用再生能源？",
+      "rank": 1,
+      "top1_score": 0.6659,
+      "retrieve_ms": 133
+    },
+    {
+      "id": "mtk-12",
+      "question": "聯發科合併資產負債表中114年資產總額是多少新台幣仟元？",
+      "rank": 1,
+      "top1_score": 0.6087,
+      "retrieve_ms": 125
+    },
+    {
+      "id": "mtk-13",
+      "question": "聯發科合併資產負債表中114年負債總額是多少新台幣仟元？",
+      "rank": 1,
+      "top1_score": 0.5969,
+      "retrieve_ms": 130
+    },
+    {
+      "id": "mtk-14",
+      "question": "聯發科合併損益表中114年營業收入淨額是多少新台幣仟元？",
+      "rank": 1,
+      "top1_score": 0.674,
+      "retrieve_ms": 109
+    },
+    {
+      "id": "mtk-15",
+      "question": "聯發科合併損益表中114年本期淨利是多少新台幣仟元？",
+      "rank": 1,
+      "top1_score": 0.6886,
+      "retrieve_ms": 144
+    },
+    {
+      "id": "mtk-16",
+      "question": "聯發科114年所得稅費用增加的主要原因是什麼？",
+      "rank": 6,
+      "top1_score": 0.5645,
+      "retrieve_ms": 127
+    },
+    {
+      "id": "mtk-17",
+      "question": "聯發科114年營業外收入及支出增加的主要原因是什麼？",
+      "rank": 8,
+      "top1_score": 0.5308,
+      "retrieve_ms": 141
+    },
+    {
+      "id": "mtk-18",
+      "question": "聯發科114年合併營業活動淨現金流入是多少？",
+      "rank": 4,
+      "top1_score": 0.6386,
+      "retrieve_ms": 118
+    },
+    {
+      "id": "mtk-19",
+      "question": "聯發科最近年度投入的研發費用是多少？",
+      "rank": 2,
+      "top1_score": 0.6939,
+      "retrieve_ms": 118
+    },
+    {
+      "id": "mtk-20",
+      "question": "聯發科114年度全球員工人數合計多少人？",
+      "rank": 3,
+      "top1_score": 0.5686,
+      "retrieve_ms": 105
+    },
+    {
+      "id": "mtk-21",
+      "question": "聯發科114年最大客戶（客戶A）佔全年銷貨比例是多少？",
+      "rank": 1,
+      "top1_score": 0.6158,
+      "retrieve_ms": 133
+    },
+    {
+      "id": "mtk-22",
+      "question": "新台幣對美金升值0.1%時，聯發科114年度損益會減少多少？",
+      "rank": 3,
+      "top1_score": 0.6243,
+      "retrieve_ms": 124
+    },
+    {
+      "id": "mtk-23",
+      "question": "聯發科及全球子公司員工中女性同仁比例約多少？",
+      "rank": 1,
+      "top1_score": 0.6997,
+      "retrieve_ms": 120
+    },
+    {
+      "id": "mtk-24",
+      "question": "聯發科的董事長和執行長分別是誰？",
+      "rank": 5,
+      "top1_score": 0.6471,
+      "retrieve_ms": 134
+    },
+    {
+      "id": "umc-01",
+      "question": "聯電114年的年營收是多少？",
+      "rank": 4,
+      "top1_score": 0.5884,
+      "retrieve_ms": 121
+    },
+    {
+      "id": "umc-02",
+      "question": "聯電114年的毛利率是多少？",
+      "rank": 1,
+      "top1_score": 0.6498,
+      "retrieve_ms": 115
+    },
+    {
+      "id": "umc-03",
+      "question": "聯電114年的營業利益率是多少？",
+      "rank": 1,
+      "top1_score": 0.6071,
+      "retrieve_ms": 106
+    },
+    {
+      "id": "umc-04",
+      "question": "聯電114年每股盈餘是多少？",
+      "rank": 1,
+      "top1_score": 0.6209,
+      "retrieve_ms": 106
+    },
+    {
+      "id": "umc-05",
+      "question": "聯電114年歸屬母公司的全年獲利是多少？",
+      "rank": 1,
+      "top1_score": 0.6564,
+      "retrieve_ms": 103
+    },
+    {
+      "id": "umc-06",
+      "question": "聯電114年晶圓代工出貨量是多少？",
+      "rank": 2,
+      "top1_score": 0.7046,
+      "retrieve_ms": 100
+    },
+    {
+      "id": "umc-07",
+      "question": "聯電114年全年資本支出約多少？",
+      "rank": 1,
+      "top1_score": 0.6069,
+      "retrieve_ms": 87
+    },
+    {
+      "id": "umc-08",
+      "question": "聯電114年研發投入是多少？",
+      "rank": 1,
+      "top1_score": 0.6455,
+      "retrieve_ms": 114
+    },
+    {
+      "id": "umc-09",
+      "question": "聯電與英特爾合作的12奈米製程預計何時進入量產？",
+      "rank": 2,
+      "top1_score": 0.7284,
+      "retrieve_ms": 111
+    },
+    {
+      "id": "umc-10",
+      "question": "聯電114年共獲得多少件國內外專利？",
+      "rank": 1,
+      "top1_score": 0.6778,
+      "retrieve_ms": 104
+    },
+    {
+      "id": "umc-11",
+      "question": "聯電通過SBTi認證的2030年減量目標是什麼？",
+      "rank": 2,
+      "top1_score": 0.735,
+      "retrieve_ms": 124
+    },
+    {
+      "id": "umc-12",
+      "question": "聯電的循環經濟資源創生中心投資多少興建？",
+      "rank": 1,
+      "top1_score": 0.6889,
+      "retrieve_ms": 102
+    },
+    {
+      "id": "umc-13",
+      "question": "聯電財務狀況表中114年資產總額是多少？",
+      "rank": 1,
+      "top1_score": 0.6773,
+      "retrieve_ms": 150
+    },
+    {
+      "id": "umc-14",
+      "question": "聯電財務狀況表中114年負債總額是多少？",
+      "rank": 1,
+      "top1_score": 0.6592,
+      "retrieve_ms": 137
+    },
+    {
+      "id": "umc-15",
+      "question": "新臺幣對美金升值10%時，聯電114年淨利會減少多少？",
+      "rank": 1,
+      "top1_score": 0.7361,
+      "retrieve_ms": 120
+    },
+    {
+      "id": "umc-16",
+      "question": "聯電113年的營業收入是多少？",
+      "rank": 9,
+      "top1_score": 0.5985,
+      "retrieve_ms": 116
+    },
+    {
+      "id": "umc-17",
+      "question": "根據Gartner，114年全球晶圓代工產業營收是多少？",
+      "rank": 4,
+      "top1_score": 0.6835,
+      "retrieve_ms": 104
+    },
+    {
+      "id": "umc-18",
+      "question": "聯電在114年迎來成立幾週年？",
+      "rank": 1,
+      "top1_score": 0.6233,
+      "retrieve_ms": 103
+    }
+  ]
+}

@@ -30,7 +30,7 @@ if (-not $NoKeda) {
 }
 
 Write-Host "5/5 Waiting for the API (first start loads bge-m3)"
-kubectl -n financial-rag rollout restart deployment/api-gateway deployment/nlp-worker | Out-Null
+kubectl -n financial-rag rollout restart deployment/api-gateway deployment/nlp-worker deployment/mcp-server deployment/frontend | Out-Null
 kubectl -n financial-rag rollout status deployment/api-gateway --timeout=600s
 Write-Host ""
 Write-Host "Frontend:   http://localhost:30173"

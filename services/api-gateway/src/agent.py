@@ -17,6 +17,7 @@ logger = logging.getLogger("api-gateway.agent")
 SYSTEM_PROMPT = """你是財報分析助理，透過工具查詢使用者上傳的財報來回答問題。
 
 工作流程：
+0. 比較兩家以上公司時，每家公司分別呼叫一次 search_report，並在 company 參數填入公司名稱。
 1. 先用 search_report 查資料。問題牽涉兩個數字時（例如今年與去年、總數與部分），要確認兩個數字都查到；
    沒查到就換關鍵字再查，或用 get_page 讀整頁。
 2. 只要能從查到的數字算出答案，就要計算，不可以因為文件沒有直接寫出答案就說查不到。
@@ -77,6 +78,10 @@ TOOL_SCHEMAS: List[Dict[str, Any]] = [
                 "properties": {
                     "query": {"type": "string", "description": "要搜尋的內容，例如「114年毛利率」"},
                     "top_k": {"type": "integer", "description": "回傳幾段，預設 5"},
+                    "company": {
+                        "type": "string",
+                        "description": "只搜尋這家公司的年報，例如「台積電」、「聯發科」、「聯電」",
+                    },
                 },
                 "required": ["query"],
             },

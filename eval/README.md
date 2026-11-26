@@ -190,3 +190,24 @@ python eval/run_eval.py --mode hybrid --qa eval/qa_multidoc.jsonl --tag multidoc
 python eval/run_eval.py --qa eval/agent_qa_multidoc.jsonl --answers --tag multidoc-rag
 python eval/run_eval.py --qa eval/agent_qa_multidoc.jsonl --agent --tag multidoc-agent
 ```
+
+### Results with three reports indexed (Kubernetes deployment)
+
+| Set | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR |
+|---|---|---|---|---|---|
+| TSMC 43 questions, TSMC only indexed | 0.674 | 0.907 | 0.953 | 1.000 | 0.788 |
+| TSMC 43 questions, three reports indexed | 0.628 | 0.791 | 0.884 | 0.977 | 0.731 |
+| MediaTek + UMC 42 questions | 0.643 | 0.833 | 0.929 | 1.000 | 0.762 |
+| + company filter (NER) — TSMC | | | | | |
+| + company filter (NER) — MediaTek + UMC | | | | | |
+
+Adding two more reports pushed TSMC answers down: other companies' balance sheets and
+financial ratios compete for the same terms (負債總額 fell to rank 10). The agent got 4 of the
+first 11 multi-company questions right, usually after a single search that returned only one
+company's numbers.
+
+**Company filter.** `companies.py` recognises companies in the question (台積電 / 台積公司 / TSMC /
+2330 → TSMC) and links them to documents tagged at indexing time. Retrieval then searches only
+those documents; for comparisons each company is searched separately and the results interleaved.
+The agent's `search_report` tool takes a `company` argument and is told to search each company
+once. Compare with `--no-company-filter`.

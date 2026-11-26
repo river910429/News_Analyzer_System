@@ -23,6 +23,7 @@ from sentence_transformers import SentenceTransformer
 
 from .agent import calculator as calculator_tool
 from .agent import run_agent
+from .companies import DISPLAY_NAMES, companies_in, document_company, link
 from .lexical import reciprocal_rank_fusion
 from .query_expansion import expand_query
 from .tokenizer import tokenize
@@ -61,6 +62,7 @@ ETL_QUEUE = "etl_queue"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_schema()
+    backfill_companies()
     ensure_bucket()
     yield
 
@@ -126,12 +128,14 @@ class RetrieveRequest(BaseModel):
     mode: Optional[Mode] = None
     rerank: Optional[bool] = None
     expand: Optional[bool] = Field(None, description="BM25 查詢是否做同義詞擴展，預設依 QUERY_EXPANSION")
+    company_filter: bool = Field(True, description="依問題中提到的公司過濾文件（字典式 NER）")
     apply_threshold: bool = Field(
         False, description="評估時預設不套用相似度門檻，才能看到完整的排序"
     )
 
 
 SCHEMA_SQL = """
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS company TEXT;
 ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS page_number INTEGER;
 ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS token_count INTEGER;
 CREATE TABLE IF NOT EXISTS postings (
@@ -150,6 +154,22 @@ def ensure_schema() -> None:
     try:
         with conn.cursor() as cursor:
             cursor.execute(SCHEMA_SQL)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def backfill_companies() -> None:
+    """Tag documents indexed before company detection existed, from their file names."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id, filename FROM documents WHERE company IS NULL")
+            for doc_id, filename in cursor.fetchall():
+                company = document_company(filename)
+                if company:
+                    cursor.execute("UPDATE documents SET company = %s WHERE id = %s", (company, doc_id))
+                    logger.info("Document %s (%s) tagged as %s", doc_id, filename, company)
         conn.commit()
     finally:
         conn.close()
@@ -230,14 +250,14 @@ def list_documents():
     try:
         with conn.cursor() as cursor:
             cursor.execute(
-                "SELECT id, filename, status, upload_date FROM documents ORDER BY upload_date DESC"
+                "SELECT id, filename, status, upload_date, company FROM documents ORDER BY upload_date DESC"
             )
             rows = cursor.fetchall()
     finally:
         conn.close()
 
     return [
-        {"id": r[0], "name": r[1], "status": r[2], "date": r[3].strftime("%Y-%m-%d %H:%M")}
+        {"id": r[0], "name": r[1], "status": r[2], "date": r[3].strftime("%Y-%m-%d %H:%M"), "company": r[4]}
         for r in rows
     ]
 
@@ -326,18 +346,20 @@ FROM postings p
 JOIN df ON df.term = p.term
 JOIN document_chunks c ON c.id = p.chunk_id
 CROSS JOIN stats s
+WHERE %(doc_ids)s::int[] IS NULL OR c.document_id = ANY(%(doc_ids)s::int[])
 GROUP BY p.chunk_id
 ORDER BY score DESC, p.chunk_id
 LIMIT %(limit)s
 """
 
 
-def bm25_search(cursor, query: str, limit: int) -> List[int]:
-    """Chunk ids ranked by BM25 over the postings table."""
+def bm25_search(cursor, query: str, limit: int, doc_ids: Optional[List[int]] = None) -> List[int]:
+    """Chunk ids ranked by BM25 over the postings table, optionally only from some documents."""
     terms = sorted(set(tokenize(query)))
     if not terms:
         return []
-    cursor.execute(BM25_SQL, {"terms": terms, "k1": BM25_K1, "b": BM25_B, "limit": limit})
+    params = {"terms": terms, "k1": BM25_K1, "b": BM25_B, "limit": limit, "doc_ids": doc_ids}
+    cursor.execute(BM25_SQL, params)
     return [row[0] for row in cursor.fetchall()]
 
 _reranker = None
@@ -357,6 +379,43 @@ def get_reranker():
     return _reranker
 
 
+def _company_doc_ids(cursor, company: str) -> List[int]:
+    cursor.execute("SELECT id FROM documents WHERE company = %s", (company,))
+    return [r[0] for r in cursor.fetchall()]
+
+
+def _ranked_ids(cursor, query: str, query_vector: str, mode: str, expand: bool, n: int, doc_ids) -> tuple:
+    """Fused (vector + BM25) chunk ids for one scope; doc_ids=None searches everything."""
+    vector_ids: List[int] = []
+    if mode in ("hybrid", "vector"):
+        if doc_ids is None:
+            cursor.execute(
+                "SELECT id FROM document_chunks ORDER BY embedding <=> %s::vector LIMIT %s", (query_vector, n)
+            )
+        else:
+            cursor.execute(
+                "SELECT id FROM document_chunks WHERE document_id = ANY(%s)"
+                " ORDER BY embedding <=> %s::vector LIMIT %s",
+                (doc_ids, query_vector, n),
+            )
+        vector_ids = [r[0] for r in cursor.fetchall()]
+    bm25_ids: List[int] = []
+    if mode in ("hybrid", "bm25"):
+        bm25_ids = bm25_search(cursor, expand_query(query) if expand else query, n, doc_ids)
+    fused = reciprocal_rank_fusion([r for r in (vector_ids, bm25_ids) if r])
+    return sorted(fused, key=lambda i: -fused[i]), bm25_ids
+
+
+def _interleave(lists: List[List[int]]) -> List[int]:
+    """Round-robin merge, so every company asked about gets passages near the top."""
+    out: List[int] = []
+    for i in range(max((len(x) for x in lists), default=0)):
+        for x in lists:
+            if i < len(x) and x[i] not in out:
+                out.append(x[i])
+    return out
+
+
 def retrieve(
     query: str,
     top_k: int,
@@ -364,9 +423,13 @@ def retrieve(
     mode: Optional[str] = None,
     rerank: Optional[bool] = None,
     expand: Optional[bool] = None,
+    companies: Optional[List[str]] = None,
 ) -> List[SearchResult]:
     """Hybrid retrieval: vector search + BM25, combined with reciprocal rank fusion.
 
+    Company filter: companies=None detects the companies named in the query (dictionary NER);
+    an empty list searches every document. With several companies (a comparison), each is
+    retrieved separately and the results interleaved, so no company is crowded out.
     mode="vector" or "bm25" uses a single retriever (useful for evaluation).
     With apply_threshold, a chunk is kept if its cosine similarity passes the
     threshold or BM25 ranked it within top_k (exact keyword matches such as
@@ -377,26 +440,18 @@ def retrieve(
     mode = mode or RETRIEVAL_MODE
     rerank = RERANK_BY_DEFAULT if rerank is None else rerank
     expand = QUERY_EXPANSION if expand is None else expand
+    companies = companies_in(query) if companies is None else companies
     query_vector = str(model.encode(query, normalize_embeddings=True).tolist())
     n_candidates = max(CANDIDATES, top_k)
+    n_keep = max(RERANK_CANDIDATES, top_k) if rerank else top_k
 
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
-            vector_ids: List[int] = []
-            if mode in ("hybrid", "vector"):
-                cursor.execute(
-                    "SELECT id FROM document_chunks ORDER BY embedding <=> %s::vector LIMIT %s",
-                    (query_vector, n_candidates),
-                )
-                vector_ids = [r[0] for r in cursor.fetchall()]
-            bm25_query = expand_query(query) if expand else query
-            bm25_ids = bm25_search(cursor, bm25_query, n_candidates) if mode in ("hybrid", "bm25") else []
-
-            rankings = [r for r in (vector_ids, bm25_ids) if r]
-            fused = reciprocal_rank_fusion(rankings)
-            n_keep = max(RERANK_CANDIDATES, top_k) if rerank else top_k
-            ranked_ids = sorted(fused, key=lambda i: -fused[i])[:n_keep]
+            scopes = [d for d in (_company_doc_ids(cursor, c) for c in companies) if d] or [None]
+            per_scope = [_ranked_ids(cursor, query, query_vector, mode, expand, n_candidates, d) for d in scopes]
+            ranked_ids = _interleave([ids for ids, _ in per_scope])[:n_keep]
+            bm25_top = {i for _, bm25 in per_scope for i in bm25[:top_k]}
             if not ranked_ids:
                 return []
 
@@ -418,7 +473,6 @@ def retrieve(
         order = sorted(range(len(ranked_ids)), key=lambda j: -scores[j])
         ranked_ids = [ranked_ids[j] for j in order[:top_k]]
 
-    bm25_top = set(bm25_ids[:top_k])
     results = []
     for chunk_id in ranked_ids:
         _, filename, page, text, similarity, document_id = rows[chunk_id]
@@ -663,8 +717,12 @@ def ollama_chat(messages, tools, model: Optional[str] = None):
     return response.json().get("message", {})
 
 
-def search_report_tool(query: str, top_k: int = 5) -> str:
-    results = retrieve(query, min(max(int(top_k), 1), 10))
+def search_report_tool(query: str, top_k: int = 5, company: str = "") -> str:
+    canonical = link(company) if company else None
+    if company and canonical is None:
+        return f"不認識公司「{company}」，可用的公司：{', '.join(DISPLAY_NAMES.values())}。"
+    companies = [canonical] if canonical else None  # None: detect companies named in the query
+    results = retrieve(query, min(max(int(top_k), 1), 10), companies=companies)
     if not results:
         return "沒有找到相關段落。"
     return "\n\n".join(
@@ -702,7 +760,13 @@ def retrieve_only(request: RetrieveRequest):
     """Retrieval without calling the LLM. Used by eval/run_eval.py to measure Hit@k / MRR."""
     try:
         return retrieve(
-            request.query, request.top_k, request.apply_threshold, request.mode, request.rerank, request.expand
+            request.query,
+            request.top_k,
+            request.apply_threshold,
+            request.mode,
+            request.rerank,
+            request.expand,
+            None if request.company_filter else [],
         )
     except Exception as e:
         logger.exception("Retrieve failed")

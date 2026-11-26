@@ -14,6 +14,7 @@ from psycopg2.extras import execute_values
 from tokenizer import tokenize
 
 SCHEMA_SQL = """
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS company TEXT;
 ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS page_number INTEGER;
 ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS token_count INTEGER;
 CREATE TABLE IF NOT EXISTS postings (

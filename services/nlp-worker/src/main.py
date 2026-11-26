@@ -16,6 +16,7 @@ from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 
 from chunking import chunk_pages
+from companies import document_company
 from indexing import SCHEMA_SQL, write_postings
 from tables import extract_table_chunks
 
@@ -106,6 +107,11 @@ def process_document(conn, s3, doc_id: int, s3_key: str) -> None:
     pdf_bytes = obj["Body"].read()
     pages = extract_pages(pdf_bytes)
     logger.info("Doc %s: extracted %d pages", doc_id, len(pages))
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT filename FROM documents WHERE id = %s", (doc_id,))
+        filename = cursor.fetchone()[0]
+    company = document_company(filename, "\n".join(pages[:5]))
+    logger.info("Doc %s: company %s", doc_id, company)
 
     chunks = chunk_pages(pages, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)
     table_chunks = extract_table_chunks(pdf_bytes)
@@ -126,7 +132,7 @@ def process_document(conn, s3, doc_id: int, s3_key: str) -> None:
             fetch=True,
         )
         n_postings = write_postings(cursor, [row[0] for row in inserted], texts)
-        cursor.execute("UPDATE documents SET status = 'completed' WHERE id = %s", (doc_id,))
+        cursor.execute("UPDATE documents SET status = 'completed', company = %s WHERE id = %s", (company, doc_id))
     conn.commit()
     logger.info("Doc %s: %d postings in the inverted index", doc_id, n_postings)
     logger.info("Doc %s: completed", doc_id)

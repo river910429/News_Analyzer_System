@@ -40,18 +40,20 @@ def list_documents() -> str:
     docs = _api("GET", "/documents")
     if not docs:
         return "No documents uploaded yet."
-    return "\n".join(f"- id={d['id']} {d['filename']} ({d['status']})" for d in docs)
+    return "\n".join(f"- id={d['id']} {d.get('name') or d.get('filename')} ({d['status']})" for d in docs)
 
 
 @mcp.tool()
-def search_report(query: str, top_k: int = 5) -> str:
+def search_report(query: str, top_k: int = 5, company_filter: bool = True) -> str:
     """Search the reports with hybrid retrieval (vector + BM25). Returns passages with document id and page.
 
     Args:
-        query: what to look for, e.g. "114年毛利率" or "前十大客戶占營收比例"
+        query: what to look for, e.g. "台積電 114年毛利率"; naming a company restricts the search to its report
         top_k: number of passages to return (1-10)
+        company_filter: set False to search all reports even if the query names a company
     """
-    results = _api("POST", "/retrieve", json={"query": query, "top_k": max(1, min(top_k, 10))})
+    payload = {"query": query, "top_k": max(1, min(top_k, 10)), "company_filter": company_filter}
+    results = _api("POST", "/retrieve", json=payload)
     if not results:
         return "No relevant passages found."
     return "\n\n".join(
