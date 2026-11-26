@@ -1,20 +1,20 @@
 // 口語化改寫的問題：用一般使用者的說法（EPS、股息、總負債、N2、碳中和…），不照抄年報用詞。
 // keywords 與 qa.jsonl 同一題相同，用來測檢索對同義詞與口語的穩健度。
-{"id": "fin-01-p", "type": "number", "question": "台積電去年總共賺進多少營收？", "keywords": ["3兆8,090億5,000萬"], "original": "台積公司民國114年全年合併營收是多少？"}
-{"id": "fin-03-p", "type": "number", "question": "台積電今年淨賺多少錢？", "keywords": ["1兆7,178億8,000萬"], "original": "台積公司114年稅後淨利是多少？"}
-{"id": "fin-04-p", "type": "number", "question": "台積電EPS多少？", "keywords": ["每股盈餘為新台幣66.25元"], "answer_keywords": ["66.25"], "original": "台積公司114年每股盈餘（EPS）是多少？"}
-{"id": "fin-07-p", "type": "number", "question": "台積電的毛利有多高？", "keywords": ["毛利率為59.9%"], "answer_keywords": ["59.9%"], "original": "台積公司114年的毛利率是多少？"}
-{"id": "fin-10-p", "type": "number", "question": "台積電今年發多少股息？", "keywords": ["每股新台幣18.0元"], "answer_keywords": ["18.0"], "original": "台積公司114年每股現金股利配發多少？"}
-{"id": "tbl-04-p", "type": "table", "question": "台積電合併報表的總資產有多少？", "keywords": ["資產總額7,933,023,878"], "answer_keywords": ["7,933,023,878"], "original": "合併資產負債表中114年資產總額是多少新台幣仟元？"}
-{"id": "tbl-05-p", "type": "table", "question": "台積電合併報表的總負債是多少？", "keywords": ["負債總額2,472,228,595"], "answer_keywords": ["2,472,228,595"], "original": "合併資產負債表中114年負債總額是多少新台幣仟元？"}
-{"id": "why-01-p", "type": "text", "question": "台積電營收為什麼會成長？", "keywords": ["營業收入淨額增加：主要係本年度平均銷售單價提高及晶圓出貨量增加"], "answer_keywords": ["平均銷售單價", "出貨量"], "original": "114年營業收入淨額增加的主要原因是什麼？"}
-{"id": "ops-01-p", "type": "number", "question": "台積電一年出貨幾片晶圓？", "keywords": ["1,500萬片十二吋晶圓約當量"], "answer_keywords": ["1,500萬"], "original": "台積公司114年晶圓出貨量是多少？"}
-{"id": "ops-03-p", "type": "number", "question": "3nm 占營收多少比重？", "keywords": ["整體晶圓銷售金額的24%"], "answer_keywords": ["24%"], "original": "3奈米製程占台積公司114年整體晶圓銷售金額多少？"}
-{"id": "tech-01-p", "type": "text", "question": "N2 什麼時候開始量產？", "keywords": ["2奈米製程技術於民國一百一十四年第四季成功進入量產"], "answer_keywords": ["第四季"], "original": "台積公司2奈米製程何時進入量產？"}
-{"id": "risk-01-p", "type": "number", "question": "台積電前十大客戶貢獻多少營收？", "keywords": ["前十大客戶的營業收入淨額", "78%"], "answer_keywords": ["78%"], "original": "114年前十大客戶占台積公司營業收入淨額的比例是多少？"}
-{"id": "risk-02-p", "type": "number", "question": "台積電最大的客戶貢獻幾成營收？", "keywords": ["最大客戶", "25%、22%及19%"], "answer_keywords": ["19%"], "original": "台積公司最大客戶占114年營業收入淨額多少？"}
-{"id": "risk-03-p", "type": "number", "question": "台幣升值1%對台積電獲利率有什麼影響？", "keywords": ["美元對新台幣每貶值1個百分點", "營業利益率下降0.3個百分點"], "answer_keywords": ["0.3"], "original": "美元對新台幣貶值1個百分點，對台積公司營業利益率影響多少？"}
-{"id": "esg-01-p", "type": "text", "question": "台積電什麼時候要達成碳中和？", "keywords": ["民國一百三十九年實現淨零排放"], "answer_keywords": ["一百三十九年"], "original": "台積公司預計何時實現淨零排放？"}
-{"id": "corp-02-p", "type": "text", "question": "台積電股票代號是幾號？", "keywords": ["股票代碼為2330"], "answer_keywords": ["2330"], "original": "台積公司的台股股票代碼是多少？"}
-{"id": "corp-03-p", "type": "number", "question": "台積電有多少員工？", "keywords": ["9萬557人"], "original": "截至114年底台積公司全球員工總數是多少？"}
-{"id": "corp-04-p", "type": "text", "question": "台積電的企業文化價值觀是什麼？", "keywords": ["誠信正直、承諾、創新和客戶信任"], "answer_keywords": ["誠信正直", "客戶信任"], "original": "台積公司的核心價值是什麼？"}
+{"id": "fin-01-p", "doc": "TSMC", "type": "number", "question": "台積電去年總共賺進多少營收？", "keywords": ["3兆8,090億5,000萬"], "original": "台積公司民國114年全年合併營收是多少？"}
+{"id": "fin-03-p", "doc": "TSMC", "type": "number", "question": "台積電今年淨賺多少錢？", "keywords": ["1兆7,178億8,000萬"], "original": "台積公司114年稅後淨利是多少？"}
+{"id": "fin-04-p", "doc": "TSMC", "type": "number", "question": "台積電EPS多少？", "keywords": ["每股盈餘為新台幣66.25元"], "answer_keywords": ["66.25"], "original": "台積公司114年每股盈餘（EPS）是多少？"}
+{"id": "fin-07-p", "doc": "TSMC", "type": "number", "question": "台積電的毛利有多高？", "keywords": ["毛利率為59.9%"], "answer_keywords": ["59.9%"], "original": "台積公司114年的毛利率是多少？"}
+{"id": "fin-10-p", "doc": "TSMC", "type": "number", "question": "台積電今年發多少股息？", "keywords": ["每股新台幣18.0元"], "answer_keywords": ["18.0"], "original": "台積公司114年每股現金股利配發多少？"}
+{"id": "tbl-04-p", "doc": "TSMC", "type": "table", "question": "台積電合併報表的總資產有多少？", "keywords": ["資產總額7,933,023,878"], "answer_keywords": ["7,933,023,878"], "original": "合併資產負債表中114年資產總額是多少新台幣仟元？"}
+{"id": "tbl-05-p", "doc": "TSMC", "type": "table", "question": "台積電合併報表的總負債是多少？", "keywords": ["負債總額2,472,228,595"], "answer_keywords": ["2,472,228,595"], "original": "合併資產負債表中114年負債總額是多少新台幣仟元？"}
+{"id": "why-01-p", "doc": "TSMC", "type": "text", "question": "台積電營收為什麼會成長？", "keywords": ["營業收入淨額增加：主要係本年度平均銷售單價提高及晶圓出貨量增加"], "answer_keywords": ["平均銷售單價", "出貨量"], "original": "114年營業收入淨額增加的主要原因是什麼？"}
+{"id": "ops-01-p", "doc": "TSMC", "type": "number", "question": "台積電一年出貨幾片晶圓？", "keywords": ["1,500萬片十二吋晶圓約當量"], "answer_keywords": ["1,500萬"], "original": "台積公司114年晶圓出貨量是多少？"}
+{"id": "ops-03-p", "doc": "TSMC", "type": "number", "question": "3nm 占營收多少比重？", "keywords": ["整體晶圓銷售金額的24%"], "answer_keywords": ["24%"], "original": "3奈米製程占台積公司114年整體晶圓銷售金額多少？"}
+{"id": "tech-01-p", "doc": "TSMC", "type": "text", "question": "N2 什麼時候開始量產？", "keywords": ["2奈米製程技術於民國一百一十四年第四季成功進入量產"], "answer_keywords": ["第四季"], "original": "台積公司2奈米製程何時進入量產？"}
+{"id": "risk-01-p", "doc": "TSMC", "type": "number", "question": "台積電前十大客戶貢獻多少營收？", "keywords": ["前十大客戶的營業收入淨額", "78%"], "answer_keywords": ["78%"], "original": "114年前十大客戶占台積公司營業收入淨額的比例是多少？"}
+{"id": "risk-02-p", "doc": "TSMC", "type": "number", "question": "台積電最大的客戶貢獻幾成營收？", "keywords": ["最大客戶", "25%、22%及19%"], "answer_keywords": ["19%"], "original": "台積公司最大客戶占114年營業收入淨額多少？"}
+{"id": "risk-03-p", "doc": "TSMC", "type": "number", "question": "台幣升值1%對台積電獲利率有什麼影響？", "keywords": ["美元對新台幣每貶值1個百分點", "營業利益率下降0.3個百分點"], "answer_keywords": ["0.3"], "original": "美元對新台幣貶值1個百分點，對台積公司營業利益率影響多少？"}
+{"id": "esg-01-p", "doc": "TSMC", "type": "text", "question": "台積電什麼時候要達成碳中和？", "keywords": ["民國一百三十九年實現淨零排放"], "answer_keywords": ["一百三十九年"], "original": "台積公司預計何時實現淨零排放？"}
+{"id": "corp-02-p", "doc": "TSMC", "type": "text", "question": "台積電股票代號是幾號？", "keywords": ["股票代碼為2330"], "answer_keywords": ["2330"], "original": "台積公司的台股股票代碼是多少？"}
+{"id": "corp-03-p", "doc": "TSMC", "type": "number", "question": "台積電有多少員工？", "keywords": ["9萬557人"], "original": "截至114年底台積公司全球員工總數是多少？"}
+{"id": "corp-04-p", "doc": "TSMC", "type": "text", "question": "台積電的企業文化價值觀是什麼？", "keywords": ["誠信正直、承諾、創新和客戶信任"], "answer_keywords": ["誠信正直", "客戶信任"], "original": "台積公司的核心價值是什麼？"}

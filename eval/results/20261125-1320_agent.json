@@ -1,0 +1,169 @@
+{
+  "tag": "agent",
+  "time": "20261125-1320",
+  "n": 12,
+  "summary": {
+    "answer_hit": 0.417,
+    "avg_tool_calls": 1.08,
+    "avg_answer_s": 1.7
+  },
+  "rows": [
+    {
+      "id": "multi-01",
+      "question": "台積公司114年的毛利率比前一年增加了幾個百分點？",
+      "rank": null,
+      "steps": 1,
+      "tools": [
+        "search_report"
+      ],
+      "stopped_reason": "answered",
+      "answer": "根據文件 1（2025 TSMC Annual Report.C.pdf）第 7 頁，台積公司 114 年的毛利率為 59.9%，前一年（113 年）的毛利率為 56.1%。\n\n毛利率增加的百分點數為：\n59.9 - 56.1 = 3.8（來源：第 7 頁）",
+      "answer_hit": true,
+      "answer_s": 1.6
+    },
+    {
+      "id": "multi-02",
+      "question": "台積公司114年的營業利益率比前一年增加了幾個百分點？",
+      "rank": null,
+      "steps": 1,
+      "tools": [
+        "search_report"
+      ],
+      "stopped_reason": "answered",
+      "answer": "根據提供的資料，台積公司114年的營業利益率為50.8%，前一年的營業利益率為45.7%。\n\n計算差異：\n50.8% - 45.7% = 5.1%（來源：第 7 頁）\n\n所以，台積公司114年的營業利益率比前一年增加了5.1個百分點。",
+      "answer_hit": true,
+      "answer_s": 1.6
+    },
+    {
+      "id": "multi-03",
+      "question": "台積公司114年每股盈餘比前一年增加了多少元？",
+      "rank": null,
+      "steps": 1,
+      "tools": [
+        "search_report"
+      ],
+      "stopped_reason": "answered",
+      "answer": "根據文件 1（2025 TSMC Annual Report.C.pdf）第 7 頁，台積公司在民國一百一十四年的每股盈餘為新台幣66.25元，較前一年每股盈餘新台幣45.25元增加了46.4%。\n\n計算每股盈餘增加的金額：\n66.25 - 45.25 = 21.00（元）（來源：第 7 頁）",
+      "answer_hit": true,
+      "answer_s": 1.7
+    },
+    {
+      "id": "multi-04",
+      "question": "台積公司114年每股現金股利比前一年提高了多少元？",
+      "rank": null,
+      "steps": 1,
+      "tools": [
+        "search_report"
+      ],
+      "stopped_reason": "answered",
+      "answer": "根據文件 1（2025 TSMC Annual Report.C.pdf）第 39 頁，台積公司在民國一百一十四年第一季的每股現金股利為新台幣5.00001754元，第四季的每股現金股利為新台幣6.0000元。\n\n計算每股現金股利的差異：\n6.0000 - 5.00001754 = -0.00001754（元）\n\n由於結果為負數，表示每股現金股利實際上是降低了，而非提高了。因此，台積公司114年每股現金股利並沒有比前一年提高，而是降低了約0.00001754元（來源：第 39 頁）。",
+      "answer_hit": false,
+      "answer_s": 2.4
+    },
+    {
+      "id": "multi-05",
+      "question": "台積公司前十大客戶的營收占比，從112年到114年增加了幾個百分點？",
+      "rank": null,
+      "steps": 2,
+      "tools": [
+        "search_report",
+        "search_report"
+      ],
+      "stopped_reason": "answered",
+      "answer": "根據目前的文件，無法得知此資訊。",
+      "answer_hit": false,
+      "answer_s": 1.3
+    },
+    {
+      "id": "multi-06",
+      "question": "台積公司第二大客戶的營收占比，114年比113年增加了幾個百分點？",
+      "rank": null,
+      "steps": 1,
+      "tools": [
+        "search_report"
+      ],
+      "stopped_reason": "answered",
+      "answer": "根據目前的文件，無法得知此資訊。\n\n上述資料中提到台積公司的第二大客戶營收占比在112年、113年和114年的數據，但並未提供明確的百分比數值，因此無法計算114年相比113年增加的百分點數。",
+      "answer_hit": false,
+      "answer_s": 1.4
+    },
+    {
+      "id": "multi-07",
+      "question": "台積公司114年前十大客戶中，扣除最大客戶後，其餘九家合計約占營收多少百分比？",
+      "rank": null,
+      "steps": 1,
+      "tools": [
+        "search_report"
+      ],
+      "stopped_reason": "answered",
+      "answer": "根據目前的文件，無法得知此資訊。\n\n需要進一步查找台積公司在114年時前十大客戶扣除最大客戶後，其餘九家合計約占營收的百分比。上述片段中只提供了前十大客戶營收占比以及最大客戶營收占比，但沒有提供扣除最大客戶後，其餘九家合計的營收占比。",
+      "answer_hit": false,
+      "answer_s": 1.3
+    },
+    {
+      "id": "multi-08",
+      "question": "根據合併資產負債表，台積公司114年的負債總額約占資產總額的百分之幾？",
+      "rank": null,
+      "steps": 1,
+      "tools": [
+        "search_report"
+      ],
+      "stopped_reason": "answered",
+      "answer": "根據文件 1（2025 TSMC Annual Report.C.pdf）第 64 頁，台積公司114年的資產總額為7,933,023,878仟元，負債總額為1,856,618,339仟元。\n\n負債總額占資產總額的百分比為：\n1,856,618,339 / 7,933,023,878 * 100% = 23.42%（來源：第 64 頁）",
+      "answer_hit": false,
+      "answer_s": 2.0
+    },
+    {
+      "id": "multi-09",
+      "question": "根據合併資產負債表，台積公司114年資產總額減去負債總額是多少新台幣仟元？",
+      "rank": null,
+      "steps": 1,
+      "tools": [
+        "search_report"
+      ],
+      "stopped_reason": "answered",
+      "answer": "根據第 1 個搜尋結果，台積公司114年資產總額為7,933,023,878仟元，負債總額為2,472,228,595仟元。\n\n資產總額減去負債總額為：\n7,933,023,878 - 2,472,228,595 = 5,460,795,283仟元（來源：第 64 頁）",
+      "answer_hit": true,
+      "answer_s": 1.9
+    },
+    {
+      "id": "multi-10",
+      "question": "台積公司114年底的員工中，專業人員約占全球員工總數的百分之幾？",
+      "rank": null,
+      "steps": 1,
+      "tools": [
+        "search_report"
+      ],
+      "stopped_reason": "answered",
+      "answer": "根據目前的文件，無法得知此資訊。",
+      "answer_hit": false,
+      "answer_s": 0.7
+    },
+    {
+      "id": "multi-11",
+      "question": "台積公司2奈米量產的年份與A14預計量產的年份相差幾年？",
+      "rank": null,
+      "steps": 1,
+      "tools": [
+        "search_report"
+      ],
+      "stopped_reason": "answered",
+      "answer": "根據文件中的資訊，台積公司的2奈米製程技術預計於民國114年第四季進入量產，而A14技術預計於民國117年量產。\n\n2奈米量產年份：民國114年\nA14預計量產年份：民國117年\n\n兩者相差年份為：117 - 114 = 3年\n\n因此，台積公司2奈米量產的年份與A14預計量產的年份相差3年。來源：第6頁。",
+      "answer_hit": true,
+      "answer_s": 1.9
+    },
+    {
+      "id": "multi-12",
+      "question": "以美元計算，台積公司114年合併營收比前一年增加了多少億美元？",
+      "rank": null,
+      "steps": 1,
+      "tools": [
+        "search_report"
+      ],
+      "stopped_reason": "answered",
+      "answer": "根據文件 1（2025 TSMC Annual Report.C.pdf）第 7 頁，台積公司民國一百一十四年全年合併營收為1,224億2,000萬美元，較前一年度的全年合併營收900億8,000萬美元增加了35.9%。\n\n計算增加的金額：\n900億8,000萬美元 * 35.9% = 323.792億美元\n\n因此，以美元計算，台積公司114年合併營收比前一年增加了323.792億美元（來源：第 7 頁）。",
+      "answer_hit": false,
+      "answer_s": 2.1
+    }
+  ]
+}

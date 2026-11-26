@@ -1,0 +1,45 @@
+// 聯發科（MediaTek）與聯電（UMC）114 年年報的檢索題。上傳時檔名要包含 MediaTek / UMC，
+// 例如 MediaTek_2025_AR.pdf、UMC_2025_AR.pdf：doc 欄位限定相關 chunk 必須來自該份文件。
+// keywords 皆已用 pypdf / pdfplumber 抽出的文字與實際切塊逐一驗證。
+{"id": "mtk-01", "doc": "MediaTek", "type": "number", "question": "聯發科114年的全年營收是多少？", "keywords": ["營收再創新高", "5,960億元"], "answer_keywords": ["5,960"]}
+{"id": "mtk-02", "doc": "MediaTek", "type": "number", "question": "聯發科114年營收較113年成長多少百分比？", "keywords": ["5,960億元", "12.3%"], "answer_keywords": ["12.3%"]}
+{"id": "mtk-03", "doc": "MediaTek", "type": "number", "question": "聯發科114年的毛利率是多少？", "keywords": ["毛利率為47.5%"], "answer_keywords": ["47.5%"]}
+{"id": "mtk-04", "doc": "MediaTek", "type": "number", "question": "聯發科114年的營業利益率是多少？", "keywords": ["營業利益率為17.4%"], "answer_keywords": ["17.4%"]}
+{"id": "mtk-05", "doc": "MediaTek", "type": "number", "question": "聯發科114年每股盈餘是多少？", "keywords": ["每股盈餘為新台幣66.16"], "answer_keywords": ["66.16"]}
+{"id": "mtk-06", "doc": "MediaTek", "type": "number", "question": "聯發科114年總計配發每股多少現金股利？", "keywords": ["每股新台幣54元的現金股利"], "answer_keywords": ["54"]}
+{"id": "mtk-07", "doc": "MediaTek", "type": "text", "question": "聯發科天璣9500採用幾奈米製程？", "keywords": ["3奈米旗艦晶片", "天璣9500"], "answer_keywords": ["3奈米"]}
+{"id": "mtk-08", "doc": "MediaTek", "type": "number", "question": "聯發科114年旗艦晶片貢獻多少營收？", "keywords": ["旗艦晶片貢獻超過30億美元"], "answer_keywords": ["30億美元"]}
+{"id": "mtk-09", "doc": "MediaTek", "type": "text", "question": "聯發科與NVIDIA合作設計的超級晶片叫什麼？", "keywords": ["GB10GraceBlackwell"], "answer_keywords": ["GB10"]}
+{"id": "mtk-10", "doc": "MediaTek", "type": "text", "question": "聯發科與哪一家汽車零組件供應商合作開發先進駕駛輔助系統晶片？", "keywords": ["DENSO"], "answer_keywords": ["DENSO"]}
+{"id": "mtk-11", "doc": "MediaTek", "type": "text", "question": "聯發科預計何年達成全球集團辦公室全面使用再生能源？", "keywords": ["2030年達成全球集團辦公室全面使用再生能源"], "answer_keywords": ["2030"]}
+{"id": "mtk-12", "doc": "MediaTek", "type": "table", "question": "聯發科合併資產負債表中114年資產總額是多少新台幣仟元？", "keywords": ["資產總額", "743,784,805"], "answer_keywords": ["743,784,805"]}
+{"id": "mtk-13", "doc": "MediaTek", "type": "table", "question": "聯發科合併資產負債表中114年負債總額是多少新台幣仟元？", "keywords": ["負債總額", "334,589,784"], "answer_keywords": ["334,589,784"]}
+{"id": "mtk-14", "doc": "MediaTek", "type": "table", "question": "聯發科合併損益表中114年營業收入淨額是多少新台幣仟元？", "keywords": ["營業收入淨額", "595,965,682"], "answer_keywords": ["595,965,682"]}
+{"id": "mtk-15", "doc": "MediaTek", "type": "table", "question": "聯發科合併損益表中114年本期淨利是多少新台幣仟元？", "keywords": ["本期淨利", "106,117,575"], "answer_keywords": ["106,117,575"]}
+{"id": "mtk-16", "doc": "MediaTek", "type": "text", "question": "聯發科114年所得稅費用增加的主要原因是什麼？", "keywords": ["所得稅費用增加：主要係因稅前淨利增加及全球最低稅負制"], "answer_keywords": ["全球最低稅負制"]}
+{"id": "mtk-17", "doc": "MediaTek", "type": "text", "question": "聯發科114年營業外收入及支出增加的主要原因是什麼？", "keywords": ["出售單晶片時序控制器"], "answer_keywords": ["時序控制器"]}
+{"id": "mtk-18", "doc": "MediaTek", "type": "number", "question": "聯發科114年合併營業活動淨現金流入是多少？", "keywords": ["營業活動：淨現金流入新台幣162,792,872仟元"], "answer_keywords": ["162,792,872"]}
+{"id": "mtk-19", "doc": "MediaTek", "type": "number", "question": "聯發科最近年度投入的研發費用是多少？", "keywords": ["投入之研發費用分別為新台幣148,306,389仟元"], "answer_keywords": ["148,306,389"]}
+{"id": "mtk-20", "doc": "MediaTek", "type": "table", "question": "聯發科114年度全球員工人數合計多少人？", "keywords": ["研發人員", "22,869"], "answer_keywords": ["22,869"]}
+{"id": "mtk-21", "doc": "MediaTek", "type": "table", "question": "聯發科114年最大客戶（客戶A）佔全年銷貨比例是多少？", "keywords": ["客戶A92,314,59515.49%"], "answer_keywords": ["15.49"]}
+{"id": "mtk-22", "doc": "MediaTek", "type": "number", "question": "新台幣對美金升值0.1%時，聯發科114年度損益會減少多少？", "keywords": ["當新台幣對美金升值/貶值0.1%時", "105,336仟元"], "answer_keywords": ["105,336"]}
+{"id": "mtk-23", "doc": "MediaTek", "type": "number", "question": "聯發科及全球子公司員工中女性同仁比例約多少？", "keywords": ["女性同仁比例約為18.4%"], "answer_keywords": ["18.4"]}
+{"id": "mtk-24", "doc": "MediaTek", "type": "text", "question": "聯發科的董事長和執行長分別是誰？", "keywords": ["董事長蔡明介", "執行長蔡力行"], "answer_keywords": ["蔡明介", "蔡力行"]}
+{"id": "umc-01", "doc": "UMC", "type": "number", "question": "聯電114年的年營收是多少？", "keywords": ["年營收為新臺幣2,376億元"], "answer_keywords": ["2,376"]}
+{"id": "umc-02", "doc": "UMC", "type": "number", "question": "聯電114年的毛利率是多少？", "keywords": ["毛利率29.0%"], "answer_keywords": ["29.0"]}
+{"id": "umc-03", "doc": "UMC", "type": "number", "question": "聯電114年的營業利益率是多少？", "keywords": ["營業利益率18.5%"], "answer_keywords": ["18.5"]}
+{"id": "umc-04", "doc": "UMC", "type": "number", "question": "聯電114年每股盈餘是多少？", "keywords": ["每股盈餘為新臺幣3.34元"], "answer_keywords": ["3.34"]}
+{"id": "umc-05", "doc": "UMC", "type": "number", "question": "聯電114年歸屬母公司的全年獲利是多少？", "keywords": ["歸屬母公司的全年獲利達新臺幣417億元"], "answer_keywords": ["417"]}
+{"id": "umc-06", "doc": "UMC", "type": "number", "question": "聯電114年晶圓代工出貨量是多少？", "keywords": ["387萬片約當12吋晶圓"], "answer_keywords": ["387"]}
+{"id": "umc-07", "doc": "UMC", "type": "number", "question": "聯電114年全年資本支出約多少？", "keywords": ["全年資本支出約美金16億元"], "answer_keywords": ["16億"]}
+{"id": "umc-08", "doc": "UMC", "type": "number", "question": "聯電114年研發投入是多少？", "keywords": ["研發投入達新臺幣177億元"], "answer_keywords": ["177"]}
+{"id": "umc-09", "doc": "UMC", "type": "text", "question": "聯電與英特爾合作的12奈米製程預計何時進入量產？", "keywords": ["英特爾已於本年度完成製程技術轉移", "民國一一六年進入量產"], "answer_keywords": ["一一六年"]}
+{"id": "umc-10", "doc": "UMC", "type": "number", "question": "聯電114年共獲得多少件國內外專利？", "keywords": ["本年度共獲得國內外專利623件"], "answer_keywords": ["623"]}
+{"id": "umc-11", "doc": "UMC", "type": "text", "question": "聯電通過SBTi認證的2030年減量目標是什麼？", "keywords": ["2030年減少範疇一及範疇二42%"], "answer_keywords": ["42%"]}
+{"id": "umc-12", "doc": "UMC", "type": "number", "question": "聯電的循環經濟資源創生中心投資多少興建？", "keywords": ["投資新臺幣18億元興建"], "answer_keywords": ["18億"]}
+{"id": "umc-13", "doc": "UMC", "type": "table", "question": "聯電財務狀況表中114年資產總額是多少？", "keywords": ["資產總額578,996,009"], "answer_keywords": ["578,996,009"]}
+{"id": "umc-14", "doc": "UMC", "type": "table", "question": "聯電財務狀況表中114年負債總額是多少？", "keywords": ["負債總額199,140,569"], "answer_keywords": ["199,140,569"]}
+{"id": "umc-15", "doc": "UMC", "type": "number", "question": "新臺幣對美金升值10%時，聯電114年淨利會減少多少？", "keywords": ["當新臺幣對美金升值／貶值百分之十時", "533,745"], "answer_keywords": ["533,745"]}
+{"id": "umc-16", "doc": "UMC", "type": "number", "question": "聯電113年的營業收入是多少？", "keywords": ["本公司民國一一三年營業收入新臺幣232,302,584千元"], "answer_keywords": ["232,302,584"]}
+{"id": "umc-17", "doc": "UMC", "type": "number", "question": "根據Gartner，114年全球晶圓代工產業營收是多少？", "keywords": ["1,737億美元"], "answer_keywords": ["1,737"]}
+{"id": "umc-18", "doc": "UMC", "type": "text", "question": "聯電在114年迎來成立幾週年？", "keywords": ["成立45週年"], "answer_keywords": ["45"]}

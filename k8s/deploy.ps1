@@ -18,8 +18,9 @@ kubectl apply -k k8s
 
 if (-not $NoKeda) {
     Write-Host "4/5 KEDA $KedaVersion"
-    kubectl get namespace keda 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) {
+    # --ignore-not-found prints nothing instead of an error, so $ErrorActionPreference=Stop is not tripped
+    $kedaNs = kubectl get namespace keda --ignore-not-found -o name
+    if (-not $kedaNs) {
         kubectl apply --server-side -f "https://github.com/kedacore/keda/releases/download/v$KedaVersion/keda-$KedaVersion.yaml"
         kubectl -n keda rollout status deployment/keda-operator --timeout=300s
     }

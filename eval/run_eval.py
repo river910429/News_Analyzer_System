@@ -46,10 +46,16 @@ def normalize(text: str) -> str:
     return "".join(text.split())
 
 
-def first_relevant_rank(chunks: list, keywords: list) -> int:
-    """1-based rank of the first chunk containing all keywords, or 0."""
+def first_relevant_rank(chunks: list, keywords: list, doc: str = None) -> int:
+    """1-based rank of the first chunk containing all keywords, or 0.
+
+    With `doc`, the chunk must also come from a file whose name contains it, so a number
+    that appears in another company's report does not count as a hit.
+    """
     kws = [normalize(k) for k in keywords]
     for rank, chunk in enumerate(chunks, start=1):
+        if doc and doc.lower() not in chunk.get("filename", "").lower():
+            continue
         content = normalize(chunk["content"])
         if all(k in content for k in kws):
             return rank
@@ -180,7 +186,7 @@ def main() -> None:
                 },
                 args.timeout,
             )
-            row["rank"] = first_relevant_rank(chunks, item["keywords"])
+            row["rank"] = first_relevant_rank(chunks, item["keywords"], item.get("doc"))
             row["top1_score"] = chunks[0]["similarity_score"] if chunks else None
             row["retrieve_ms"] = round((time.time() - t0) * 1000)
 

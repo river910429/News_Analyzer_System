@@ -163,3 +163,30 @@ dictionary. Run on the server (hybrid, with and without expansion):
 python eval/run_eval.py --mode hybrid --qa eval/qa_paraphrase.jsonl
 python eval/run_eval.py --mode hybrid --qa eval/qa_paraphrase.jsonl --no-expand
 ```
+
+## Harder benchmark: three companies
+
+With one document, "毛利率是多少" has one right chunk anywhere in the index. With the TSMC,
+MediaTek (聯發科) and UMC (聯電) 2025 annual reports indexed together, retrieval must also pick
+the right company, and the year columns are ordered differently (TSMC and UMC list 114 first,
+MediaTek lists 113 first).
+
+| File | Questions | Checks |
+|---|---|---|
+| `qa.jsonl` / `qa_paraphrase.jsonl` | 43 / 18 TSMC | `doc: TSMC` — hits must come from the TSMC file |
+| `qa_multidoc.jsonl` | 24 MediaTek + 18 UMC | `doc` restricts relevant chunks to that company's file |
+| `agent_qa_multidoc.jsonl` | 10 cross-company calculations + 4 unanswerable | answers, and refusing when the report has no answer |
+
+The unanswerable questions mention things that are in the reports (印度 appears only as a patent
+region, the Kumamoto fab exists but its headcount is not given), so a system that answers from
+loosely related passages will make something up.
+
+Upload the reports with the company in the file name, e.g. `MediaTek_2025_AR.pdf` and
+`UMC_2025_AR.pdf`, then:
+
+```bash
+python eval/run_eval.py --mode hybrid --tag multidoc-tsmc
+python eval/run_eval.py --mode hybrid --qa eval/qa_multidoc.jsonl --tag multidoc-mtk-umc
+python eval/run_eval.py --qa eval/agent_qa_multidoc.jsonl --answers --tag multidoc-rag
+python eval/run_eval.py --qa eval/agent_qa_multidoc.jsonl --agent --tag multidoc-agent
+```

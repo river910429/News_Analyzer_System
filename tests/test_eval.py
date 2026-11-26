@@ -51,3 +51,13 @@ def test_answer_matches_numbers_on_boundaries():
     assert answer_matches("每股 18.0 元", ["18.0"])
     assert answer_matches("合計 5,460,795,283 仟元", ["5,460,795,283"])
     assert answer_matches("約為 59%。", ["59"])
+
+
+def test_first_relevant_rank_respects_document():
+    chunks = [
+        {"filename": "UMC_2025_AR.pdf", "content": "毛利率29.0%"},
+        {"filename": "MediaTek_2025_AR.pdf", "content": "毛利率29.0%"},
+    ]
+    assert first_relevant_rank(chunks, ["毛利率29.0%"]) == 1
+    assert first_relevant_rank(chunks, ["毛利率29.0%"], doc="MediaTek") == 2
+    assert first_relevant_rank(chunks, ["毛利率29.0%"], doc="TSMC") == 0
