@@ -10,7 +10,7 @@
 {"id": "x-08", "question": "聯電114年負債總額約占資產總額的百分之幾？", "answer_keywords": ["34.4|34.39"], "facts": "199,140,569 / 578,996,009"}
 {"id": "x-09", "question": "聯發科114年合併營業收入淨額比113年增加多少新台幣仟元？", "answer_keywords": ["65,379,796"], "facts": "595,965,682 - 530,585,886"}
 {"id": "x-10", "question": "聯電114年的每股盈餘比113年少多少元？", "answer_keywords": ["0.46"], "facts": "3.80 - 3.34"}
-{"id": "u-01", "type": "unanswerable", "question": "聯發科114年在印度市場的營收是多少？", "answer_keywords": ["無法得知|找不到"], "facts": "印度只出現在專利布局地區"}
-{"id": "u-02", "type": "unanswerable", "question": "聯電115年第一季的營收是多少？", "answer_keywords": ["無法得知|找不到"], "facts": "年報不含115年季報"}
-{"id": "u-03", "type": "unanswerable", "question": "台積電熊本晶圓廠114年的員工人數是多少？", "answer_keywords": ["無法得知|找不到"], "facts": "熊本廠有提到，員工人數沒有"}
-{"id": "u-04", "type": "unanswerable", "question": "聯發科114年的每股市價最高是多少元？", "answer_keywords": ["無法得知|找不到"], "facts": "年報沒有股價資料"}
+{"id": "u-01", "type": "unanswerable", "question": "聯發科114年在印度市場的營收是多少？", "answer_keywords": ["無法得知|找不到|並未|未提及|沒有提到|未提供|未明確"], "facts": "印度只出現在專利布局地區"}
+{"id": "u-02", "type": "unanswerable", "question": "聯電115年第一季的營收是多少？", "answer_keywords": ["無法得知|找不到|並未|未提及|沒有提到|未提供|未明確"], "facts": "年報不含115年季報"}
+{"id": "u-03", "type": "unanswerable", "question": "台積電熊本晶圓廠114年的員工人數是多少？", "answer_keywords": ["無法得知|找不到|並未|未提及|沒有提到|未提供|未明確"], "facts": "熊本廠有提到，員工人數沒有"}
+{"id": "u-04", "type": "unanswerable", "question": "聯發科114年的每股市價最高是多少元？", "answer_keywords": ["無法得知|找不到|並未|未提及|沒有提到|未提供|未明確"], "facts": "年報沒有股價資料"}

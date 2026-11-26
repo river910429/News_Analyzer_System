@@ -9,6 +9,7 @@ import ast
 import json
 import logging
 import operator
+import re
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -35,17 +36,83 @@ SYSTEM_PROMPT = """你是財報分析助理，透過工具查詢使用者上傳�
 # Words that signal the question needs arithmetic.
 _CALC_HINTS = (
     "增加", "減少", "相差", "差距", "提高", "下降", "占", "比例", "百分之", "百分點", "合計", "減去", "多少倍",
+    "比", "多多少", "少多少", "倍",
 )
 _REFUSAL = "無法得知"
+# Ways a model says the document does not contain the answer.
+_ABSTAIN = ("無法得知", "找不到", "並未", "未提及", "沒有提到", "未提供", "未明確")
+
+# "a op b = c" written in the answer. No CJK inside, so it cannot span sentences.
+_EXPR = re.compile(r"([0-9.,()+\-*/×÷%％ \t]+?)[ \t]*[=≈][ \t]*(-?[0-9][0-9,]*(?:\.[0-9]+)?)[ \t]*([%％])?")
+# Any arithmetic between numbers, even when interrupted by labels: "95570 - 24917（技術人員）".
+_DERIVATION = re.compile(r"[0-9][ \t]*[×÷*/][ \t]*[0-9]|[0-9][ \t]+[-+][ \t]+[0-9]")
+_CN_QUARTER = {"一": "1", "二": "2", "三": "3", "四": "4"}
 
 
-def critique(question: str, answer: str, steps: List[Dict[str, Any]]) -> Optional[str]:
+def _is_abstention(answer: str) -> bool:
+    return any(a in answer for a in _ABSTAIN)
+
+
+def check_arithmetic(answer: str) -> List[Dict[str, Any]]:
+    """Recompute every "expression = result" in the answer. Returns the wrong ones.
+
+    The claimed result counts as correct when it equals the true value rounded to the
+    decimals the model wrote; "a / b = 34.39%" is also accepted for a ratio of 0.3439.
+    """
+    wrong = []
+    for m in _EXPR.finditer(answer):
+        expr = m.group(1).strip().lstrip("+-*/×÷ \t").replace("%", "").replace("％", "")
+        if not re.search(r"[0-9].*[+\-*/×÷].*[0-9]", expr):
+            continue
+        result = calculator(expr)
+        if result.startswith("錯誤"):
+            continue
+        actual = float(result)
+        claimed_text = m.group(2)
+        claimed = float(claimed_text.replace(",", ""))
+        decimals = len(claimed_text.split(".")[1]) if "." in claimed_text else 0
+        tolerance = 0.5 * 10**-decimals + 1e-9
+        ok = abs(actual - claimed) <= tolerance or (m.group(3) and abs(actual * 100 - claimed) <= tolerance)
+        if not ok:
+            wrong.append({"expression": expr, "claimed": claimed_text, "actual": round(actual, 4)})
+    return wrong
+
+
+def _period_variants(question: str) -> List[List[str]]:
+    """Periods the question asks about, each with the spellings a report may use.
+
+    "115年第一季" -> [["115年第一季", "115年第1季", "2026年第一季", "2026年第1季", "2026Q1", "1Q26"]];
+    "114年" -> [["114年", "2025年", "2025"]]. ROC year + 1911 = Gregorian year.
+    """
+    periods = []
+    for m in re.finditer(r"(\d{2,4})\s*年(?:\s*第\s*([一二三四1-4])\s*季)?", question):
+        year = int(m.group(1))
+        if not (80 <= year <= 150 or 1990 <= year <= 2060):  # "過去10年" is a duration, not a year
+            continue
+        roc, ad = (year - 1911, year) if year > 1911 else (year, year + 1911)
+        if m.group(2):
+            q = _CN_QUARTER.get(m.group(2), m.group(2))
+            cn = "一二三四"[int(q) - 1]
+            variants = [f"{y}年第{x}季" for y in (roc, ad) for x in (q, cn)] + [f"{ad}Q{q}", f"{q}Q{str(ad)[2:]}"]
+        else:
+            variants = [f"{roc}年", f"{ad}年", str(ad)]
+        asked = "".join(m.group(0).split())  # the question's own spelling goes first, for the feedback
+        periods.append([asked] + [v for v in variants if v != asked])
+    return periods
+
+
+def critique(question: str, answer: str, steps: List[Dict[str, Any]], evidence: Optional[str] = None) -> Optional[str]:
     """Harness-side checks on a draft answer. Returns feedback for the model, or None to accept.
 
-    Small local models often skip the calculator (and then mis-calculate) or give up after one
-    search. These checks catch both and ask the model to try again.
+    Small local models skip the calculator and mis-calculate, give up after one search, or
+    answer a question the document cannot answer with a number from another period or one
+    they derived themselves. These checks catch each case and ask the model to try again.
+    `evidence` is the full text of the search/page results (steps keep only a prefix).
     """
     used = [s["tool"] for s in steps]
+    if evidence is None:
+        evidence = "\n".join(str(s.get("result", "")) for s in steps if s["tool"] != "calculator")
+    evidence = "".join(evidence.split())
     # A tool named in the answer but never called means the model only pretended to use it.
     faked = [name for name in ("calculator", "search_report", "get_page") if name in answer and name not in used]
     if faked:
@@ -53,9 +120,38 @@ def critique(question: str, answer: str, steps: List[Dict[str, Any]]) -> Optiona
             f"你在回答裡提到 {', '.join(faked)}，但並沒有真的呼叫這個工具。"
             "請發出工具呼叫拿到結果，最後的回答不要提到工具名稱。"
         )
-    if _REFUSAL in answer and used.count("search_report") + used.count("get_page") < 2:
-        return "你只查了一次就說查不到。請換個關鍵字再用 search_report 查一次，或用 get_page 讀相關頁面，再回答。"
-    if any(h in question for h in _CALC_HINTS) and "calculator" not in used and _REFUSAL not in answer:
+    searches = used.count("search_report") + used.count("get_page")
+    if _is_abstention(answer):
+        if _REFUSAL in answer and searches < 2:
+            return "你只查了一次就說查不到。請換個關鍵字再用 search_report 查一次，或用 get_page 讀相關頁面，再回答。"
+        return None
+
+    # The question asks about a period that never appears in what was retrieved.
+    if searches:
+        for variants in _period_variants(question):
+            if not any(v in evidence for v in variants):
+                return (
+                    f"問題問的是「{variants[0]}」，但查到的資料裡沒有出現這個期間。"
+                    "不要用其他期間的數字代替。請針對這個期間再查一次；文件確實沒有，"
+                    "就回答「根據目前的文件，無法得知此資訊」。"
+                )
+
+    wrong = check_arithmetic(answer)
+    if wrong:
+        w = wrong[0]
+        return (
+            f"你的算式 {w['expression']} 算錯了：正確結果是 {w['actual']}，不是 {w['claimed']}。"
+            "請用正確的結果重新回答，計算請呼叫 calculator。"
+        )
+
+    needs_calc = any(h in question for h in _CALC_HINTS)
+    # A question that asks for a stated figure, answered with a figure the model worked out.
+    if not needs_calc and _DERIVATION.search(answer):
+        return (
+            "這題問的是年報直接記載的數字，你卻用其他數字推算出來。年報沒有直接寫出這個數字時，"
+            "正確的回答是「根據目前的文件，無法得知此資訊」；如果有直接寫，請照抄原文數字並註明頁碼。"
+        )
+    if needs_calc and "calculator" not in used and not _EXPR.search(answer):
         return "這題需要計算，但你還沒有使用 calculator。請把查到的數字用 calculator 算出結果，再根據計算結果回答。"
     return None
 
@@ -189,7 +285,7 @@ def run_agent(
     chat_fn: ChatFn,
     tools: Dict[str, Callable[..., str]],
     max_steps: int = 6,
-    max_critiques: int = 2,
+    max_critiques: int = 3,
 ) -> Dict[str, Any]:
     """Run the tool-calling loop. Returns {"answer", "steps", "critiques", "stopped_reason", "elapsed_ms"}.
 
@@ -201,6 +297,7 @@ def run_agent(
         {"role": "user", "content": question},
     ]
     steps: List[Dict[str, Any]] = []
+    evidence: List[str] = []  # full search/page results, for the critique
     critiques: List[str] = []
     stopped_reason = "answered"
     answer = ""
@@ -218,7 +315,9 @@ def run_agent(
 
         if not tool_calls:
             answer = (reply.get("content") or "").strip()
-            feedback = critique(question, answer, steps) if len(critiques) < max_critiques else None
+            feedback = None
+            if len(critiques) < max_critiques:
+                feedback = critique(question, answer, steps, "\n".join(evidence))
             if feedback is None:
                 break
             logger.info("agent critique: %s", feedback)
@@ -239,6 +338,8 @@ def run_agent(
                 result = f"工具錯誤：{e.__class__.__name__}: {e}"
             logger.info("agent tool %s(%s) -> %d chars", name, args, len(result))
             steps.append({"tool": name, "arguments": args, "result": result[:2000]})
+            if name != "calculator":
+                evidence.append(result)
             messages.append({"role": "tool", "tool_name": name, "content": result})
     else:
         # Step budget used up: ask for a final answer from what was gathered, without tools.

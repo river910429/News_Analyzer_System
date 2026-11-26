@@ -169,3 +169,68 @@ def test_agent_tool_receives_plain_strings_from_nested_call():
 
     run_agent("聯電毛利率？", chat, {"search_report": search_report, "calculator": calculator})
     assert seen == {"query": "毛利率", "company": "聯電"}
+
+
+# --- checks added after the multi-company run (eval/results/*_agent-fix.json) ---
+
+
+def test_arithmetic_check_catches_wrong_results_from_the_run():
+    from src.agent import check_arithmetic
+
+    # x-08: the model wrote 34.57; the true value is 34.39
+    wrong = check_arithmetic("199,140,569 / 578,996,009 * 100 = 34.57%")
+    assert wrong and wrong[0]["actual"] == 34.3941
+    # x-02: "* 100% ≈ 29.1%" is really 29.0068
+    assert check_arithmetic("毛利率為68,906,499 / 237,553,199 * 100% ≈ 29.1%（來源：第 50 頁）")
+    # correct ones pass, including a ratio written as a percentage and a list bullet
+    assert check_arithmetic("66.25 - 29.00 = 37.25（來源：第 7 頁）") == []
+    assert check_arithmetic("199140569 / 578996009 = 34.39%") == []
+    assert check_arithmetic("- 59.9 - 29.0 = 30.9") == []
+    assert check_arithmetic("第 7 頁，2025-12-31") == []
+
+
+def test_critique_gives_the_correct_value_for_wrong_arithmetic():
+    from src.agent import critique
+
+    steps = [{"tool": "search_report", "result": "114年 負債總計 199,140,569 資產總計 578,996,009"}]
+    feedback = critique("聯電114年負債總額約占資產總額的百分之幾？", "199140569 / 578996009 * 100 = 34.57%", steps)
+    assert "34.3941" in feedback
+
+
+def test_critique_rejects_a_period_that_was_never_retrieved():
+    from src.agent import critique
+
+    # u-02: asked about 115年第一季, answered with the full-year 114 figure
+    steps = [{"tool": "search_report", "result": "114年 營業收入 237,553,199"}] * 2
+    feedback = critique("聯電115年第一季的營收是多少？", "聯電 115 年第一季的營收為 237,553,199 千元", steps)
+    assert feedback and "115年第一季" in feedback
+    # the Gregorian spelling of the same year counts
+    steps = [{"tool": "search_report", "result": "2025年 毛利率 59.9%"}]
+    assert critique("台積電114年的毛利率是多少？", "59.9%（來源：第 7 頁）", steps) is None
+    # durations are not periods
+    steps = [{"tool": "search_report", "result": "研發投入"}]
+    assert critique("過去10年研發投入的重點是什麼？", "先進製程（來源：第 3 頁）", steps) is None
+
+
+def test_critique_rejects_derived_numbers_for_a_lookup_question():
+    from src.agent import critique
+
+    steps = [{"tool": "search_report", "result": "2025年 員工 95570 人"}] * 2
+    # u-03: subtracted staff categories to "find" a plant's headcount
+    answer = "95570 - 24917（技術人員） - 11368（助理人員） = 59285"
+    assert "推算" in critique("台積電熊本晶圓廠114年的員工人數是多少？", answer, steps)
+    # abstaining is the right answer
+    assert critique("台積電熊本晶圓廠114年的員工人數是多少？", "財報中並未提到熊本廠的員工人數", steps) is None
+
+
+def test_critique_runs_on_full_results_not_the_truncated_steps():
+    chat, _ = scripted_chat(
+        [
+            tool_call("search_report", query="營收"),
+            {"content": "營收 100 億（來源：第 3 頁）"},
+        ]
+    )
+    # "115年" sits past the 2000-character prefix kept in steps
+    tools = {"search_report": lambda query, top_k=5, company="": "x" * 2500 + "115年第一季營收 100 億"}
+    result = run_agent("115年第一季的營收是多少？", chat, tools)
+    assert result["critiques"] == []

@@ -247,3 +247,28 @@ almost word for word), so the context window was not the cause. The answers them
   is removed; the rules stay.
 - The eval now stores each step's arguments and result, so the next failure can be read from the
   trace instead of inferred from the answer.
+
+### Argument fix, then harness checks on the answer
+
+With arguments unwrapped, the agent answered 4/14 (2 tool calls per question, 4.2 s). The
+remaining errors fell into groups that the harness can check without knowing the answer:
+
+| Error in the run | Example | Harness check |
+|---|---|---|
+| Mental arithmetic, wrong result | `199,140,569 / 578,996,009 * 100 = 34.57%` (true: 34.39) | Recompute every `expression = result` in the answer; if wrong, send back the true value |
+| Number from another period | "115年第一季" answered with the full-year 114 revenue | Years and quarters in the question (114年 ↔ 2025, 第一季 ↔ Q1) must appear in the retrieved text |
+| A stated figure derived from other numbers | Kumamoto headcount = total staff − technicians − assistants | A lookup question (no 增加/相差/占/比…) answered with arithmetic is sent back: copy the figure or say it is unavailable |
+| Correct abstention scored as wrong | "財報中並未明確提到聯發科在印度市場的營收" | Metric fix: unanswerable questions accept 並未 / 未提及 / 未提供 as well as 無法得知 |
+
+The checks run on the full tool results (steps keep only the first 2,000 characters), and the
+critique budget is 3. Still open, waiting on the traces: picking the wrong number from a correct
+passage — MediaTek's dividend (29.00) taken as its EPS, the first-half dividend instead of the
+annual total, the wrong gross-margin line.
+
+| Multi-company agent (14) | answer_hit |
+|---|---|
+| before the company filter (first 11 questions) | 4/11 |
+| `company` argument added | 1/14 |
+| `num_ctx` 16k (not the cause) | 0/14 |
+| arguments unwrapped, example removed | 4/14 |
+| harness checks on the answer | *pending* |
