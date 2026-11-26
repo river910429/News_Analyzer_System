@@ -35,8 +35,23 @@ SYSTEM_PROMPT = """你是財報分析助理，透過工具查詢使用者上傳�
 
 # Words that signal the question needs arithmetic.
 _CALC_HINTS = (
-    "增加", "減少", "相差", "差距", "提高", "下降", "占", "比例", "百分之", "百分點", "合計", "減去", "多少倍",
-    "比", "多多少", "少多少", "倍",
+    "增加",
+    "減少",
+    "相差",
+    "差距",
+    "提高",
+    "下降",
+    "占",
+    "比例",
+    "百分之",
+    "百分點",
+    "合計",
+    "減去",
+    "多少倍",
+    "比",
+    "多多少",
+    "少多少",
+    "倍",
 )
 _REFUSAL = "無法得知"
 # Ways a model says the document does not contain the answer.
@@ -84,6 +99,34 @@ def _format_like(value: float, claimed: str) -> str:
     if float(value).is_integer() and decimals == 0:
         return f"{int(value):,}" if "," in claimed else str(int(value))
     return f"{value:.{max(decimals, 2)}f}"
+
+
+_LATEX_FRAC = re.compile(r"\\frac\{([^{}]*)\}\{([^{}]*)\}")
+
+
+def plain_math(text: str) -> str:
+    """LaTeX math -> plain text, so arithmetic checks can read it and users see no markup.
+
+    The fine-tuned model picked up the 14B teacher's habit of writing
+    "\\[ \\frac{334,589,784}{743,784,805} \\times 100 = 44.92\\% \\]", which the harness
+    could not parse, so wrong results went uncorrected.
+    """
+    if "\\" not in text:
+        return text
+    t = re.sub(r"\\[\[\]()]", "", text)  # \[ \] \( \)
+    for _ in range(3):  # nested fractions
+        t = _LATEX_FRAC.sub(r"(\1) / (\2)", t)
+    t = re.sub(r"\\text\{([^{}]*)\}", r"\1", t)
+    for latex, plain in (
+        ("\\times", "×"),
+        ("\\cdot", "×"),
+        ("\\div", "÷"),
+        ("\\%", "%"),
+        ("\\left", ""),
+        ("\\right", ""),
+    ):
+        t = t.replace(latex, plain)
+    return re.sub(r"[ \t]{2,}", " ", t)
 
 
 def correct_arithmetic(answer: str, max_rounds: int = 5) -> tuple:
@@ -460,7 +503,7 @@ def run_agent(
         messages.append({"role": "assistant", "content": reply.get("content", ""), "tool_calls": sent_calls})
 
         if not tool_calls:
-            answer, fixed = correct_arithmetic((reply.get("content") or "").strip())
+            answer, fixed = correct_arithmetic(plain_math((reply.get("content") or "").strip()))
             if fixed:
                 logger.info("agent: corrected arithmetic %s", fixed)
                 corrections.extend(fixed)

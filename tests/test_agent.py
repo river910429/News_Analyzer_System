@@ -344,3 +344,14 @@ def test_critique_rejects_answers_without_any_tool_call():
     assert "還沒有查任何資料" in critique("瑞昱114年度董事會開會次數是多少？", "共召開 6 次", [])
     # a pure calculation only needs the calculator
     assert critique("2 乘 3？", "答案是 6", [{"tool": "calculator", "result": "6"}]) is None
+
+
+def test_latex_math_is_read_and_corrected():
+    from src.agent import correct_arithmetic, plain_math
+
+    # final-lora, x-06: the fine-tuned model wrote LaTeX, which the arithmetic check could not parse
+    answer = "\\[ \\frac{334,589,784}{743,784,805} \\times 100 = 44.92\\% \\]\n因此約占 44.92%。"
+    fixed, corrections = correct_arithmetic(plain_math(answer))
+    assert "\\frac" not in fixed and "44.98%" in fixed and "44.92" not in fixed
+    assert corrections[0]["claimed"] == "44.92"
+    assert plain_math("毛利率 59.9%（來源：第 7 頁）") == "毛利率 59.9%（來源：第 7 頁）"

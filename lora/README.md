@@ -98,13 +98,36 @@ Out of memory in step 3: `--max-len 4096` (drops the longest conversations) or
 Sampling raised to 90 passages per company. The garbled pages also hurt 日月光 retrieval in
 production; OCR for such pages is a separate fix.
 
+## Training run
+
+191 trajectories (6 longer than 6,144 tokens dropped), 2 epochs, 48 steps, 1 h 45 min.
+Train loss 0.41 → 0.20; validation loss 0.177 → 0.170 (21 held-out trajectories, no overfitting).
+40.4 M trainable parameters (0.53 % of 7.6 B).
+
+## First evaluation and what was wrong with it
+
+Same harness, stock `qwen2.5` vs `qwen2.5-fin:7b`: TSMC 9/12 → 10/12 with **0 critiques and 0
+arithmetic fixes** (stock: 4 and 4) and 2.7 s vs 3.4 s per answer — but multi-company 8/14 → 6/14.
+Two problems, both outside the weights:
+
+- **Prompt template with CRLF.** `export.ps1` wrote the Modelfile with Windows line endings, so
+  Ollama's ChatML template put `\r\n` into every turn — a format the model never saw in
+  training. The tell: every fine-tuned answer contains `\r\n`, none of the stock model's do.
+- **LaTeX arithmetic.** The student learned the teacher's `\[ \frac{a}{b} \times 100 = c \]`.
+  The harness could not parse it, so wrong results went uncorrected (x-06 44.92 vs 44.98,
+  x-08 34.52 vs 34.39; the stock model wrote plain `a / b * 100` and got fixed). The harness now
+  converts LaTeX to plain arithmetic before checking.
+
+Both models are re-evaluated after the fixes.
+
 ## Results
 
 | Model (same harness) | multi-company 14 | TSMC 12 | s / answer |
 |---|---|---|---|
 | qwen2.5:7b | 9/14 | 11/12 | 3.7 |
 | qwen2.5:14b (teacher) | 12/14 | 11/12 | 6.2 |
-| qwen2.5-fin:7b (QLoRA) | *pending* | *pending* | |
+| qwen2.5-fin:7b (QLoRA), first run — invalid, see below | 6/14 | 10/12 | 3.5 |
+| qwen2.5-fin:7b (QLoRA), fixed template + LaTeX parsing | *pending* | *pending* | |
 
 Also compared: `harness_critiques` and `harness_fixes` in the eval summary — how often the
 harness had to step in. Training should lower them: the harness catches errors, the

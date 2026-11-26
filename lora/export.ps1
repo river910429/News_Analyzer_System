@@ -18,16 +18,22 @@ if (-not (Test-Path "$out\fin-f16.gguf")) {
     docker run --rm -v "${out}:/models" $Image --convert /models/merged --outtype f16 --outfile /models/fin-f16.gguf
     if ($LASTEXITCODE -ne 0) { throw "conversion failed" }
 }
-Write-Host "2/3 f16 -> Q4_K_M"
-docker run --rm -v "${out}:/models" $Image --quantize /models/fin-f16.gguf /models/fin-q4_k_m.gguf Q4_K_M
-if ($LASTEXITCODE -ne 0) { throw "quantization failed" }
+if (-not (Test-Path "$out\fin-q4_k_m.gguf")) {
+    Write-Host "2/3 f16 -> Q4_K_M"
+    docker run --rm -v "${out}:/models" $Image --quantize /models/fin-f16.gguf /models/fin-q4_k_m.gguf Q4_K_M
+    if ($LASTEXITCODE -ne 0) { throw "quantization failed" }
+}
 
 Write-Host "3/3 Ollama model $Name (template and parameters from $Base)"
 $template = ollama show $Base --modelfile
 if ($LASTEXITCODE -ne 0) { throw "base model $Base not found; check 'ollama list'" }
-$lines = $template | Where-Object { $_ -notmatch '^\s*FROM\s' -and $_ -notmatch '^#' }
-# UTF-8 without BOM: Windows PowerShell's "-Encoding utf8" adds one, which breaks the FROM line.
-[IO.File]::WriteAllLines("$out\Modelfile", [string[]](@("FROM ./fin-q4_k_m.gguf") + $lines), (New-Object Text.UTF8Encoding $false))
+$lines = $template -split "`r?`n" | Where-Object { $_ -notmatch '^\s*FROM\s' -and $_ -notmatch '^#' }
+# UTF-8 without BOM ("-Encoding utf8" adds one, which breaks the FROM line) and LF line endings:
+# the TEMPLATE block is multi-line, and CRLF there puts "\r\n" into every ChatML turn
+# ("<|im_start|>system\r\n..."), a prompt format the model never saw in training. The first
+# evaluation of the fine-tuned model ran with that template and answered with "\r\n" throughout.
+$text = ((@("FROM ./fin-q4_k_m.gguf") + $lines) -join "`n") + "`n"
+[IO.File]::WriteAllText("$out\Modelfile", $text, (New-Object Text.UTF8Encoding $false))
 Push-Location $out
 try { ollama create $Name -f Modelfile } finally { Pop-Location }
 ollama list | Select-String $Name
