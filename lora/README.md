@@ -76,6 +76,20 @@ python eval/run_eval.py --api http://localhost:30080 --qa eval/agent_qa.jsonl --
 Out of memory in step 3: `--max-len 4096` (drops the longest conversations) or
 `--base Qwen/Qwen2.5-3B-Instruct` (then export with `-Base qwen2.5:3b -Name qwen2.5-fin:3b`).
 
+## Data collection log
+
+**Run 1: 20 of 148 kept.** Reading the rejections:
+
+| Rejected | Count | Cause | Fix |
+|---|---|---|---|
+| no_search | 27 | 14B answered from memory; the harness had no check for this | new harness check `no_search` (also protects production) |
+| critiqued | ~75 | mostly `early_refusal`: 14B said 無法得知 after one search, then succeeded when told to retry | keep and **repair**: drop the draft + critique pair |
+| wrong_answer | 21 | partly bad questions | question filters below |
+| garbage questions | — | 日月光's PDF has fonts without a Unicode map ("115ϋ Jamaican dollar"); vague "某數字", page/phone questions | skip passages with >1% non-report characters; reject vague or trivia questions in the prompt and by regex |
+
+Sampling raised to 90 passages per company. The garbled pages also hurt 日月光 retrieval in
+production; OCR for such pages is a separate fix.
+
 ## Results
 
 | Model (same harness) | multi-company 14 | TSMC 12 | s / answer |

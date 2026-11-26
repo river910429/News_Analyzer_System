@@ -200,6 +200,9 @@ def _check(
             "請發出工具呼叫拿到結果，最後的回答不要提到工具名稱。"
         )
     searches = used.count("search_report") + used.count("get_page")
+    # Found while collecting LoRA data: qwen2.5:14b answered 27 of 148 questions from memory.
+    if not used:
+        return "no_search", "你還沒有查任何資料就回答了。請先用 search_report 查年報，根據查到的內容回答並註明頁碼。"
     if _is_abstention(answer):
         if _REFUSAL in answer and searches < 2:
             return "early_refusal", (

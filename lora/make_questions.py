@@ -28,12 +28,15 @@ PROMPT = """以下是{company}年報第 {page} 頁的一段內容：
 
 {text}
 
-請根據這段內容出 {n} 個繁體中文問題，給財報分析助理練習。規則：
-1. 每題都要寫出公司名稱「{company}」與年度（例如 114年），並且只能用這段內容回答。
+請根據這段內容出最多 {n} 個繁體中文問題，給財報分析助理練習。規則：
+1. 每題都要寫出公司名稱「{company}」、年度（例如 114年）與指標的具體名稱
+   （例如「營業收入淨額」「毛利率」「研發費用」「員工人數」），只能用這段內容回答。
 2. 題型盡量不同：(a) 直接查一個數字；(b) 兩個年度的變化（增加/減少多少）；
    (c) 兩個數字的比例或百分比；(d) 段落列出季度或半年度數字時，問全年合計。
 3. answer 只寫最後的數字（不要單位、不要逗號以外的符號），例如 "48.2" 或 "1,234,567"。
-4. 段落裡沒有足夠數字時，少出幾題也沒關係。
+4. 不要出這些題目：「某數字」「哪一項數值是…」這類沒有指明指標的題目；問頁碼、電話、
+   日期、地址、項目編號或「有幾項」的題目；段落內容看不懂（亂碼）的題目。
+5. 段落沒有適合的數字時，回傳空的 questions。
 
 只輸出 JSON：{{"questions": [{{"question": "...", "answer": "...", "type": "lookup|change|ratio|total"}}]}}"""
 
@@ -70,12 +73,38 @@ def ollama_json(ollama: str, model: str, prompt: str) -> dict:
         return {}
 
 
-def numeric_passages(chunks: list, min_numbers: int = 4, min_len: int = 150) -> list:
-    """Chunks worth asking about: enough text and several multi-digit numbers."""
+# Characters a Traditional Chinese report is made of; anything else is extraction noise.
+_NORMAL_CHAR = re.compile(
+    r"[\u0020-\u007e\u00a0-\u00ff\u2000-\u206f\u2100-\u22ff\u3000-\u303f\u3400-\u4dbf"
+    r"\u4e00-\u9fff\uff00-\uffef\s]"
+)
+# Questions that cannot teach report reading: no named metric, page lookups, trivia.
+_BAD_QUESTION = re.compile(
+    r"某|哪一項數|數字是多少|財務數字|第\s*\d+\s*頁|頁中|電話|地址|符號|標記為|項目編號|有幾項|幾種"
+)
+
+
+def garbled_ratio(text: str) -> float:
+    """Share of characters outside the scripts of a Chinese report.
+
+    Some PDFs (日月光's) embed fonts without a Unicode map, so pypdf returns noise such as
+    "115ϋ Jamaican dollar 4˜26˚"; the teacher then writes questions about the noise.
+    """
+    if not text:
+        return 1.0
+    return sum(1 for ch in text if not _NORMAL_CHAR.match(ch)) / len(text)
+
+
+def numeric_passages(chunks: list, min_numbers: int = 4, min_len: int = 150, max_garbled: float = 0.01) -> list:
+    """Chunks worth asking about: readable, enough text and several multi-digit numbers."""
     keep = []
     for c in chunks:
         text = c["text"]
-        if len(text) >= min_len and len(re.findall(r"\d[\d,]*\.?\d*", text)) >= min_numbers:
+        if (
+            len(text) >= min_len
+            and garbled_ratio(text) <= max_garbled
+            and len(re.findall(r"\d[\d,]*\.?\d*", text)) >= min_numbers
+        ):
             keep.append(c)
     return keep
 
@@ -96,7 +125,7 @@ def main() -> None:
     p.add_argument("--ollama", default="http://localhost:11434")
     p.add_argument("--model", default="qwen2.5:14b", help="teacher model that writes the questions")
     p.add_argument("--companies", nargs="+", default=["ASE", "Novatek", "Realtek"])
-    p.add_argument("--passages", type=int, default=45, help="passages sampled per company")
+    p.add_argument("--passages", type=int, default=90, help="passages sampled per company")
     p.add_argument("--per-passage", type=int, default=2)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default=str(HERE / "data" / "questions.jsonl"))
@@ -118,12 +147,14 @@ def main() -> None:
             name = DISPLAY_NAMES[company]
             passages = numeric_passages(get(f"{args.api}/documents/{doc['id']}/chunks"))
             sample = random.sample(passages, min(args.passages, len(passages)))
-            print(f"{name}: {len(passages)} numeric passages, sampling {len(sample)}")
+            print(f"{name}: {len(passages)} readable numeric passages, sampling {len(sample)}")
             for c in sample:
                 prompt = PROMPT.format(company=name, page=c["page"], text=c["text"], n=args.per_passage)
                 for q in ollama_json(args.ollama, args.model, prompt).get("questions", [])[: args.per_passage]:
                     question, answer = str(q.get("question", "")).strip(), str(q.get("answer", "")).strip()
                     if not question or not re.search(r"\d", answer) or name not in question or question in seen:
+                        continue
+                    if _BAD_QUESTION.search(question) or garbled_ratio(question) > 0:
                         continue
                     # A lookup answer must be copied from the passage; the teacher can misread too.
                     if q.get("type") == "lookup" and not number_in(answer, c["text"]):

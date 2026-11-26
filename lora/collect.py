@@ -6,11 +6,17 @@ run under. A trajectory is kept only if it is clean:
 
 - the answer matches the expected answer (numeric match, as in eval/run_eval.py), or, for an
   unanswerable question, it abstains;
-- the harness had nothing to fix: no critiques, no arithmetic corrections, no tool calls
-  recovered from text, and it ended normally;
+- the harness did not have to repair the answer itself: no arithmetic corrections, no tool
+  calls recovered from text, no guardrail, and it ended normally;
 - it searched at least once (no answers from memory).
 
 This is rejection sampling: the student learns from the teacher's successes only.
+
+Critiques are allowed, but the trajectory is repaired before training: each rejected draft
+answer and the critique that followed it are removed. "search → draft '無法得知' → critique →
+search again → answer" becomes "search → search again → answer", which is what a good agent
+does unprompted. In the first run, keeping only critique-free trajectories kept 20 of 148,
+and most rejections were 14B refusing after one search, then succeeding when told to retry.
 
     python lora/collect.py --api http://localhost:30080 --model qwen2.5:14b
 """
@@ -41,12 +47,26 @@ def ask(api: str, question: str, model: str, timeout: float) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def repair_messages(messages: list, critiques: list) -> list:
+    """Drop each (draft answer, critique) pair, so the trajectory reads as if done right first time."""
+    critique_set = set(critiques)
+    out, i = [], 0
+    while i < len(messages):
+        m = messages[i]
+        nxt = messages[i + 1] if i + 1 < len(messages) else None
+        is_draft = m["role"] == "assistant" and not m.get("tool_calls")
+        if is_draft and nxt and nxt["role"] == "user" and nxt.get("content") in critique_set:
+            i += 2
+            continue
+        out.append(m)
+        i += 1
+    return out
+
+
 def rejection_reason(item: dict, res: dict) -> str:
     """Why a trajectory is not used for training, or "" to keep it."""
     if res.get("stopped_reason") != "answered":
         return f"stopped:{res.get('stopped_reason')}"
-    if res.get("critiques"):
-        return "critiqued:" + ",".join(res.get("checks") or ["?"])
     if res.get("corrections"):
         return "arithmetic_fixed"
     steps = res.get("steps") or []
@@ -83,8 +103,18 @@ def main() -> None:
         reasons[reason or "kept"] = reasons.get(reason or "kept", 0) + 1
         log.append({"id": item["id"], "reason": reason or "kept", "answer": res.get("answer", "")})
         if not reason:
-            kept.append({"id": item["id"], "company": item["company"], "messages": res["messages"]})
-        print(f"[{i:>3}/{len(items)}] {reason or 'KEPT':<24} {item['question']}")
+            critiques = res.get("critiques") or []
+            messages = repair_messages(res["messages"], critiques)
+            kept.append(
+                {"id": item["id"], "company": item["company"], "messages": messages, "repaired": len(critiques)}
+            )
+            if critiques:
+                reason_note = "KEPT (repaired " + ",".join(res.get("checks") or []) + ")"
+            else:
+                reason_note = "KEPT"
+        else:
+            reason_note = reason
+        print(f"[{i:>3}/{len(items)}] {reason_note:<32} {item['question']}")
 
     random.seed(args.seed)
     random.shuffle(kept)
@@ -100,7 +130,8 @@ def main() -> None:
         encoding="utf-8",
     )
     minutes = (time.time() - started) / 60
-    print(f"\nkept {len(kept)}/{len(items)} in {minutes:.0f} min: {reasons}")
+    repaired = sum(1 for k in kept if k["repaired"])
+    print(f"\nkept {len(kept)}/{len(items)} ({repaired} repaired) in {minutes:.0f} min: {reasons}")
     print(f"train {len(kept) - n_val}, val {n_val} -> {out}")
 
 

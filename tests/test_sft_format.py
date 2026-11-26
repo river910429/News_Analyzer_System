@@ -86,7 +86,8 @@ def test_collect_keeps_only_clean_correct_trajectories():
     item = {"answer": "48.2", "type": "lookup"}
     assert rejection_reason(item, good) == ""
     assert rejection_reason(item, good | {"answer": "毛利率為47.9%"}) == "wrong_answer"
-    assert rejection_reason(item, good | {"critiques": ["…"], "checks": ["ungrounded"]}) == "critiqued:ungrounded"
+    assert rejection_reason(item, good | {"critiques": ["…"], "checks": ["early_refusal"]}) == ""  # repaired
+    assert rejection_reason(item, good | {"stopped_reason": "guardrail:derived"}) == "stopped:guardrail:derived"
     assert rejection_reason(item, good | {"corrections": [{"claimed": "1"}]}) == "arithmetic_fixed"
     assert rejection_reason(item, good | {"steps": [{"tool": "search_report", "recovered": True}]}) == "text_tool_call"
     assert rejection_reason(item, good | {"steps": [{"tool": "calculator"}]}) == "no_search"
@@ -102,3 +103,27 @@ def test_lookup_answers_must_come_from_the_passage():
     assert number_in("48.2", passage) and number_in("1,234,567", passage)
     assert not number_in("48.3", passage)
     assert not number_in("234", passage)  # not a piece of a longer number
+
+
+def test_repair_removes_draft_and_critique_pairs():
+    from collect import repair_messages
+
+    search = {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "search_report"}}]}
+    result = {"role": "tool", "tool_name": "search_report", "content": "…"}
+    critique = "你只查了一次就說查不到。請換個關鍵字再查一次"
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "瑞昱114年廢棄物總重量？"},
+        search,
+        result,
+        {"role": "assistant", "content": "根據目前的文件，無法得知此資訊。"},
+        {"role": "user", "content": critique},
+        search,
+        result,
+        {"role": "assistant", "content": "1,234 公噸（來源：第 80 頁）"},
+    ]
+    repaired = repair_messages(messages, [critique])
+    assert [m["role"] for m in repaired] == ["system", "user", "assistant", "tool", "assistant", "tool", "assistant"]
+    assert "無法得知" not in str(repaired) and critique not in str(repaired)
+    # the question itself is a user message too, and stays
+    assert repair_messages(messages[:4], []) == messages[:4]

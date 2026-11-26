@@ -336,3 +336,11 @@ def test_agent_corrects_arithmetic_without_a_critique_round():
     assert result["answer"] == "199140569 / 578996009 * 100 = 34.39%"
     assert result["critiques"] == [] and len(result["corrections"]) == 1
     assert len(calls) == 2
+
+
+def test_critique_rejects_answers_without_any_tool_call():
+    from src.agent import critique
+
+    assert "還沒有查任何資料" in critique("瑞昱114年度董事會開會次數是多少？", "共召開 6 次", [])
+    # a pure calculation only needs the calculator
+    assert critique("2 乘 3？", "答案是 6", [{"tool": "calculator", "result": "6"}]) is None
