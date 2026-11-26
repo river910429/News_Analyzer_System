@@ -115,20 +115,22 @@ v3 + table chunks **0.833**, at about 3 s extra per question.
 ## Tokenization for BM25
 
 `python eval/tokenizer_benchmark.py` re-indexes the chunks with each tokenizer and runs both
-QA sets (HanLP / CKIP rows appear when those libraries are installed). Offline results,
-574 chunks of the TSMC report:
+QA sets. Results on the server's 544 chunks of the TSMC report:
 
-| Tokenizer | qa.jsonl Hit@1 | Hit@5 | MRR | paraphrase Hit@5 | MRR |
-|---|---|---|---|---|---|
-| unigram | 0.488 | 0.860 | 0.639 | 0.333 | 0.223 |
-| **bigram (production)** | **0.791** | **0.953** | **0.871** | 0.389 | 0.334 |
-| unigram + bigram | 0.721 | 0.930 | 0.817 | 0.389 | 0.324 |
-| jieba | 0.581 | 0.814 | 0.687 | 0.278 | 0.170 |
-| jieba + finance dictionary | 0.605 | 0.860 | 0.703 | 0.111 | 0.115 |
+| Tokenizer | qa.jsonl Hit@1 | Hit@5 | MRR | paraphrase Hit@5 | MRR | index time |
+|---|---|---|---|---|---|---|
+| unigram | 0.558 | 0.930 | 0.701 | 0.444 | 0.256 | 0.0 s |
+| **bigram (production)** | **0.767** | **0.953** | **0.853** | **0.444** | **0.354** | 0.0 s |
+| unigram + bigram | 0.744 | 0.953 | 0.829 | 0.389 | 0.346 | 0.1 s |
+| jieba | 0.581 | 0.907 | 0.718 | 0.278 | 0.178 | 1.0 s |
+| jieba + finance dictionary | 0.628 | 0.907 | 0.736 | 0.111 | 0.114 | 0.4 s |
+| HanLP 2.x (coarse ELECTRA small) + finance dictionary | 0.605 | 0.930 | 0.744 | 0.278 | 0.172 | 27 s |
+| CKIP (BERT base, Traditional Chinese) | 0.651 | 0.907 | 0.762 | 0.444 | 0.315 | 429 s (CPU) |
 
-Dictionary segmentation lost to plain bigrams: jieba's dictionary is Simplified Chinese and
-mis-segments Traditional text, and the query and the document are often segmented at
-different granularity (毛利 vs 毛利率), so they share no term. Bigrams never mis-segment.
+Every word segmenter, including the two neural ones and CKIP trained on Traditional Chinese,
+lost to plain character bigrams, and they were 100-10,000x slower to index. Segmentation errors
+and mismatched granularity between query and document (毛利 vs 毛利率, 營收 vs 營業收入淨額)
+cost more than whole words gain. Bigrams never mis-segment and overlap partially matching words.
 
 ## Paraphrased questions: the benchmark was too easy
 
@@ -142,6 +144,16 @@ Synonym expansion for BM25 (`query_expansion.py`, generic finance vocabulary):
 |---|---|---|
 | no expansion | 0.953 / 0.871 | 0.389 / 0.334 |
 | synonym expansion | 0.930 / 0.835 | **0.722 / 0.577** |
+
+On the server, hybrid retrieval (vector + BM25):
+
+| Hybrid | qa.jsonl Hit@1 / Hit@5 / MRR | paraphrase Hit@1 / Hit@5 / MRR |
+|---|---|---|
+| no expansion | 0.698 / 0.977 / 0.807 | 0.444 / 0.556 / 0.505 |
+| **synonym expansion (default)** | 0.674 / 0.953 / 0.788 | **0.611 / 0.833 / 0.681** |
+
+Expansion costs one question on the original set and gains five on the paraphrased one;
+real users ask in their own words, so it is on by default.
 
 Caveat: the dictionary was written after reading these paraphrases, so the paraphrase gain is
 optimistic. A fair test needs a new held-out set of paraphrases written without looking at the
