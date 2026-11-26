@@ -8,15 +8,15 @@ A Retrieval-Augmented Generation (RAG) system for financial reports. Upload PDF 
 
 <!-- TODO: add a screenshot / GIF of the UI here, e.g. docs/demo.gif -->
 
-## Features
+## Highlights
 
-- **PDF upload** with asynchronous indexing (status: `pending → processing → completed / failed`)
-- **Hybrid retrieval**: `BAAI/bge-m3` vectors in PostgreSQL + pgvector, fused by reciprocal rank fusion with BM25 over a **self-built inverted index** in PostgreSQL (CJK bigram postings, scored in SQL), plus finance synonym expansion; page-aware, sentence-level chunking
-- **Grounded answers** from a local LLM (Ollama + `qwen2.5`) with page citations, **streamed** to the UI with Server-Sent Events (time to first token ≈ 0.5 s vs ≈ 1.9 s for the full answer)
-- **Tool-calling agent** (`/agent`): searches several times, reads full pages and uses a calculator for multi-step questions; every step is returned and shown in the UI (Agent mode toggle with an expandable trace)
-- **MCP server**: exposes `list_documents`, `search_report` and `get_page` to any MCP client (Claude Code, Claude Desktop, other agents)
-- **Evaluation harness**: 43 retrieval questions (Hit@k, MRR) and 12 multi-step questions comparing plain RAG with the agent
-- **No external API keys** — everything runs locally with Docker Compose
+- **Hybrid retrieval with Chinese NLP fundamentals**: `bge-m3` vectors (pgvector) fused by RRF with BM25 over a **self-built inverted index** in PostgreSQL (CJK bigram postings, scored in SQL). Bigrams beat jieba, HanLP and CKIP word segmentation on this corpus (MRR 0.853 vs 0.744–0.762). Chinese numerals are annotated at index time (民國一一四年〔114年〕, 9萬557〔90,557〕), which fixed retrieval misses and misread figures.
+- **Agent harness**: a tool-calling agent (search, page reader, safe calculator) wrapped in checks that do not need the answer key — arithmetic is recomputed and corrected, periods and numbers must appear in the retrieved text, lookup questions may not be answered with derived figures, tool calls written as text are parsed and run, and a guardrail abstains when the model ignores feedback. Multi-company questions: **0/14 → 9/14** with the same 7B model, each step backed by an error analysis in [`eval/README.md`](eval/README.md).
+- **QLoRA distillation** ([`lora/`](lora/README.md)): 14B teacher trajectories on *other* companies' reports, rejection-sampled and repaired, used to fine-tune Qwen2.5-7B (4-bit, 0.53 % trainable parameters), exported to GGUF Q4_K_M for Ollama. Held-out companies: 18/26 → **20/26**, faster answers, consistent abstention.
+- **Multi-company**: company recognition and entity linking in questions, company-filtered retrieval with per-company interleaving.
+- **Kubernetes**: Docker Desktop cluster, KEDA autoscaling of indexing workers on Redis queue length, graceful scale-in, probes, PVCs ([`k8s/`](k8s/README.md)).
+- **MCP server** exposing `list_documents`, `search_report`, `get_page` to any MCP client; **SSE streaming** (first token ≈ 0.5 s).
+- **Evaluation and CI**: retrieval (Hit@k, MRR), agent answer accuracy and harness interventions; 80+ unit tests, ruff, GitHub Actions with a Postgres service. Everything runs locally, no API keys.
 
 ## Architecture
 
@@ -118,17 +118,28 @@ Then ask, for example, "用 financial-rag 查台積電 114 年毛利率比前一
 
 ## Evaluation
 
-Retrieval quality is measured on a 43-question set for the 2025 TSMC annual report
-(see [`eval/README.md`](eval/README.md)):
+Details, failure analyses and every intermediate result: [`eval/README.md`](eval/README.md), [`lora/README.md`](lora/README.md).
+
+**Retrieval** (2025 annual reports; three reports indexed, company filter, numeral annotation):
 
 | | Hit@1 | Hit@5 | MRR |
 |---|---|---|---|
-| Baseline: fixed 500-char chunks, vector search | 0.581 | 0.884 | 0.719 |
-| Page + sentence chunks, hybrid (vector + BM25, RRF) | 0.698 | **0.977** | 0.799 |
-| + labelled table chunks (pdfplumber) | 0.698 | **0.977** | **0.807** |
+| TSMC, 43 questions — baseline (500-char chunks, vector only, one report) | 0.581 | 0.884 | 0.719 |
+| TSMC, 43 questions — final | 0.698 | 0.953 | 0.818 |
+| MediaTek + UMC, 42 questions — final | 0.690 | 0.976 | 0.801 |
 
-Multi-step questions (12, need two facts + a calculation): plain RAG **58%** correct,
-tool-calling agent with critique checks and table chunks **83%**.
+**Agent** (multi-step questions: two facts + a calculation, cross-company comparisons, unanswerable questions):
+
+| Same harness | multi-company 14 | TSMC 12 | total | s / answer |
+|---|---|---|---|---|
+| qwen2.5 7B | 8/14 | 10/12 | 18/26 | 4.4 / 3.1 |
+| qwen2.5 7B + QLoRA (distilled) | 10/14 | 10/12 | 20/26 | 3.6 / 2.9 |
+| qwen2.5 14B | 12/14 | 11/12 | 23/26 | 6.2 / 4.8 |
+
+Harness development on the multi-company set with 7B: 0/14 (schema-shaped tool arguments) → 4/14
+(arguments unwrapped) → 6/14 (arithmetic / period / derivation checks) → 9/14 (grounding fix,
+arithmetic correction, numeral annotation). An earlier 10/12 on the TSMC set turned out to be
+inflated by a prompt example containing a test answer; it was removed and re-measured.
 
 ## Testing
 
@@ -138,8 +149,9 @@ ruff check .
 pytest
 ```
 
-Unit tests cover chunking, BM25 / rank fusion, evaluation metrics, and that the API module
-imports. ML models are stubbed, so tests run in about a second without Docker.
+Unit tests cover chunking, tokenization, numeral annotation, BM25 / rank fusion, the agent
+harness checks (with real failing answers from the evaluation runs), fine-tuning data
+formatting, evaluation metrics, and the API. ML models are stubbed, so tests run in about a second without Docker.
 GitHub Actions runs lint + tests and builds every service image on each push.
 
 ## Configuration
@@ -166,18 +178,14 @@ All settings come from environment variables; see [`.env.example`](.env.example)
 
 ```
 .
-├── docker-compose.yml
-├── init.sql                    # documents + document_chunks (vector(1024))
-├── .env.example
-└── services/
-    ├── api-gateway/src/main.py # /upload, /documents, /search
-    ├── nlp-worker/src/main.py  # ETL loop: download → parse → chunk → embed → store
-    └── frontend/src/App.jsx    # upload sidebar, document status, chat panel
+├── docker-compose.yml, init.sql, .env.example
+├── services/
+│   ├── api-gateway/   # FastAPI: upload, hybrid retrieval, RAG + SSE, agent harness (agent.py)
+│   ├── nlp-worker/    # queue consumer: parse → chunk (+ tables) → annotate → embed → postings
+│   ├── mcp-server/    # MCP tools over the API
+│   └── frontend/      # React: upload, streaming chat, agent trace
+├── k8s/               # manifests, KEDA ScaledObject, deploy.ps1
+├── eval/              # QA sets, run_eval.py, tokenizer / ingest benchmarks, results/
+├── lora/              # question generation, teacher trajectories, QLoRA training, GGUF export
+└── tests/
 ```
-
-## Roadmap
-
-- [x] Cleanup: remove dead code, env-based config, logging, `.env.example`
-- [ ] Retrieval quality: paragraph-aware chunking, hybrid search (BM25 + vector), reranker, page numbers in citations, delete endpoint
-- [ ] Evaluation: 30–50 question QA set with Hit@k / MRR, baseline vs. improvements
-- [ ] Engineering: pytest + GitHub Actions, async DB/HTTP, streaming answers (SSE), health checks, hosted demo
