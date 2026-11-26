@@ -217,3 +217,21 @@ company's numbers.
 those documents; for comparisons each company is searched separately and the results interleaved.
 The agent's `search_report` tool takes a `company` argument and is told to search each company
 once. Compare with `--no-company-filter`.
+
+### Company filter, TSMC questions naming the company
+
+| TSMC 43 questions | Hit@1 | Hit@3 | Hit@5 | Hit@10 | MRR |
+|---|---|---|---|---|---|
+| one report indexed | 0.674 | 0.907 | 0.953 | 1.000 | 0.788 |
+| three reports, no filter | 0.628 | 0.791 | 0.884 | 0.977 | 0.731 |
+| **three reports, company filter** | **0.674** | **0.884** | **0.930** | 0.977 | **0.784** |
+
+With the company named and filtered on, TSMC retrieval is back to its single-document level.
+
+### Agent collapse: the context window
+
+After telling the agent to search each company separately, its accuracy on the multi-company set
+fell to 1/14, with answers about unrelated passages, tool calls printed as text and stray tokens.
+Cause: Ollama's default context is 4,096 tokens, and two searches of five ~500-character passages
+already exceed it. Ollama then silently drops the oldest messages — the system prompt and tool
+definitions first. Fix: `num_ctx` 16,384, and a warning when a prompt nears the limit.

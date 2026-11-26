@@ -61,6 +61,10 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5")
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "180"))
 # Cap generated tokens: a small model occasionally loops, and an unbounded answer turns into a timeout.
 OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "768"))
+# Ollama's default context is 4096 tokens. An agent run with a few searches (5 passages each)
+# exceeds that, Ollama silently drops the oldest messages - including the system prompt and tool
+# definitions - and the model starts emitting broken tool calls. 16k fits ~8 searches.
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "16384"))
 SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.4"))
 RETRIEVAL_MODE = os.getenv("RETRIEVAL_MODE", "hybrid")  # hybrid | vector | bm25
 CANDIDATES = int(os.getenv("RETRIEVAL_CANDIDATES", "30"))  # per retriever, before fusion
@@ -539,7 +543,7 @@ def _ollama_payload(prompt: str, stream: bool) -> dict:
         "model": OLLAMA_MODEL,
         "prompt": prompt,
         "stream": stream,
-        "options": {"temperature": 0.1, "num_predict": OLLAMA_NUM_PREDICT},  # factual Q&A: deterministic
+        "options": {"temperature": 0.1, "num_predict": OLLAMA_NUM_PREDICT, "num_ctx": OLLAMA_NUM_CTX},
     }
 
 
@@ -720,13 +724,19 @@ def ollama_chat(messages, tools, model: Optional[str] = None):
         "model": model or OLLAMA_MODEL,
         "messages": messages,
         "stream": False,
-        "options": {"temperature": 0.1, "num_predict": OLLAMA_NUM_PREDICT},
+        "options": {"temperature": 0.1, "num_predict": OLLAMA_NUM_PREDICT, "num_ctx": OLLAMA_NUM_CTX},
     }
     if tools:
         payload["tools"] = tools
     response = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=OLLAMA_TIMEOUT)
     response.raise_for_status()
-    return response.json().get("message", {})
+    data = response.json()
+    prompt_tokens = data.get("prompt_eval_count") or 0
+    if prompt_tokens >= OLLAMA_NUM_CTX * 0.9:
+        logger.warning(
+            "Prompt uses %d of %d context tokens: older messages may be dropped", prompt_tokens, OLLAMA_NUM_CTX
+        )
+    return data.get("message", {})
 
 
 def search_report_tool(query: str, top_k: int = 5, company: str = "") -> str:
