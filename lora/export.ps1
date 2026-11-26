@@ -1,16 +1,34 @@
-# Import the merged model into Ollama with the base model's chat template (tool calling included),
-# quantized to q4_K_M like the stock qwen2.5:7b, so the comparison is like for like.
+# Convert the merged model to GGUF, quantize it to Q4_K_M (the quantization of the stock
+# qwen2.5 7B in Ollama, so the comparison is like for like) and import it into Ollama with the
+# base model's chat template, which carries the tool-calling format.
+#
+# llama.cpp runs in its official Docker image; Ollama's own safetensors import only offers
+# int4/int8/fp4/fp8, not Q4_K_M.
 param(
     [string]$Name = "qwen2.5-fin:7b",
-    [string]$Base = "qwen2.5:7b"
+    [string]$Base = "qwen2.5",            # = qwen2.5:latest, the 7B the agent uses by default
+    [string]$Image = "ghcr.io/ggml-org/llama.cpp:full"
 )
 $ErrorActionPreference = "Stop"
-$merged = Resolve-Path "$PSScriptRoot\out\merged"
-$modelfile = "$PSScriptRoot\out\Modelfile"
+$out = Resolve-Path "$PSScriptRoot\out"
+if (-not (Test-Path "$out\merged\config.json")) { throw "run lora/merge.py first" }
 
-# Same TEMPLATE / PARAMETER lines as the base model; only FROM changes.
-$lines = ollama show $Base --modelfile | Where-Object { $_ -notmatch '^\s*FROM\s' -and $_ -notmatch '^#' }
-@("FROM $merged") + $lines | Set-Content -Encoding utf8 $modelfile
+if (-not (Test-Path "$out\fin-f16.gguf")) {
+    Write-Host "1/3 merged safetensors -> GGUF f16"
+    docker run --rm -v "${out}:/models" $Image --convert /models/merged --outtype f16 --outfile /models/fin-f16.gguf
+    if ($LASTEXITCODE -ne 0) { throw "conversion failed" }
+}
+Write-Host "2/3 f16 -> Q4_K_M"
+docker run --rm -v "${out}:/models" $Image --quantize /models/fin-f16.gguf /models/fin-q4_k_m.gguf Q4_K_M
+if ($LASTEXITCODE -ne 0) { throw "quantization failed" }
 
-ollama create $Name -q q4_K_M -f $modelfile
+Write-Host "3/3 Ollama model $Name (template and parameters from $Base)"
+$template = ollama show $Base --modelfile
+if ($LASTEXITCODE -ne 0) { throw "base model $Base not found; check 'ollama list'" }
+$lines = $template | Where-Object { $_ -notmatch '^\s*FROM\s' -and $_ -notmatch '^#' }
+# UTF-8 without BOM: Windows PowerShell's "-Encoding utf8" adds one, which breaks the FROM line.
+[IO.File]::WriteAllLines("$out\Modelfile", [string[]](@("FROM ./fin-q4_k_m.gguf") + $lines), (New-Object Text.UTF8Encoding $false))
+Push-Location $out
+try { ollama create $Name -f Modelfile } finally { Pop-Location }
 ollama list | Select-String $Name
+Write-Host "The f16 GGUF and merged/ folder can be deleted once the evaluation is done (~30 GB)."

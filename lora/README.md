@@ -21,7 +21,7 @@ questions.jsonl  (~250 answerable + 15 unanswerable)
 train.jsonl / val.jsonl   full conversations: system prompt, tool calls, tool results, answer
    │  train.py            QLoRA on Qwen2.5-7B-Instruct, loss on assistant turns only
    ▼
-adapter ─ merge.py ─► merged fp16 ─ export.ps1 ─► Ollama qwen2.5-fin:7b (q4_K_M)
+adapter ─ merge.py ─► merged fp16 ─ export.ps1 (llama.cpp) ─► GGUF Q4_K_M ─► Ollama qwen2.5-fin:7b
    │
    ▼
 eval/run_eval.py --model qwen2.5-fin:7b   on TSMC / MediaTek / UMC (never seen in training)
@@ -69,9 +69,17 @@ docker run --rm -v ${PWD}/lora:/work/lora -v hf-cache:/root/.cache/huggingface `
 powershell -ExecutionPolicy Bypass -File lora\export.ps1
 
 # 5. evaluate on the held-out companies
-python eval/run_eval.py --api http://localhost:30080 --qa eval/agent_qa_multidoc.jsonl --agent --model qwen2.5-fin:7b --tag lora-7b
-python eval/run_eval.py --api http://localhost:30080 --qa eval/agent_qa.jsonl --agent --model qwen2.5-fin:7b --tag lora-7b-tsmc
+# re-run the stock 7B too: the harness changed since its last run (no_search check)
+python eval/run_eval.py --api http://localhost:30080 --qa eval/agent_qa_multidoc.jsonl --agent --model qwen2.5 --tag final-7b
+python eval/run_eval.py --api http://localhost:30080 --qa eval/agent_qa_multidoc.jsonl --agent --model qwen2.5-fin:7b --tag final-lora
+python eval/run_eval.py --api http://localhost:30080 --qa eval/agent_qa.jsonl --agent --model qwen2.5 --tag final-7b-tsmc
+python eval/run_eval.py --api http://localhost:30080 --qa eval/agent_qa.jsonl --agent --model qwen2.5-fin:7b --tag final-lora-tsmc
 ```
+
+Merging needs ~16 GB of RAM inside Docker: set `memory=24GB` in `%UserProfile%\.wslconfig`
+(the default is half the machine) and scale the K8s deployments to 0 while it runs.
+Training peaked at 21 GiB at `--max-len 6144`, spilling past 16 GB of VRAM into shared memory
+(130 s per step); `--max-len 4096` stays on the GPU.
 
 Out of memory in step 3: `--max-len 4096` (drops the longest conversations) or
 `--base Qwen/Qwen2.5-3B-Instruct` (then export with `-Base qwen2.5:3b -Name qwen2.5-fin:3b`).
